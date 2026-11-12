@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DC Confort
 // @namespace    deck.local
-// @version      0.124.5
+// @version      0.125.0
 // @updateURL    https://raw.githubusercontent.com/Shinsudo/dreadcast-scripts/main/dc-confort.meta.js
 // @downloadURL  https://raw.githubusercontent.com/Shinsudo/dreadcast-scripts/main/dc-confort.user.js
 // @description  Rend l'écran de Dreadcast et son forum plus lisibles. Le Courrier, façon DDM V2, lit les messages auprès du jeu et envoie tes réponses, à ta demande seulement.
@@ -45,7 +45,7 @@
    Repères du jeu : DOM-JEU.md (relevés du 23 et du 24/10/2026). */
 (function () {
   "use strict";
-  var VERSION = "0.124.5";
+  var VERSION = "0.125.0";
   var racine = document.documentElement;
   // Les éléments que DC Confort crée : un changement fait dedans ne relance pas l'observateur (audit de phase 6, n° 14)
   var nos = typeof WeakSet === "function" ? new WeakSet() : null;
@@ -1790,7 +1790,8 @@
     "html.dcc-maquette #liste_messages li.dcc-section { display: none !important; }",
     // Le titre entier (retenu à l'ouverture de la conversation) à la place de celui que le jeu coupe ; pas pour une
     // conversation archivée ou en sourdine, dont la mention prend déjà la place après le titre
-    "html.dcc-maquette #liste_messages li.message:not(.dcc-archivee):not(.dcc-muet) .message_titre[data-dcc-titre] { font-size: 0 !important; }",
+    // (lot 125, K9 : en sourdine ou archivée, la ligne gardait le titre coupé par le jeu ; le titre entier passe dans ::after avec sa marque)
+    "html.dcc-maquette #liste_messages li.message .message_titre[data-dcc-titre] { font-size: 0 !important; }",
     "html.dcc-maquette #liste_messages li.message:not(.dcc-archivee):not(.dcc-muet) .message_titre[data-dcc-titre]::after { content: attr(data-dcc-titre); font-size: 13.5px; }",
     // Les dossiers : sous la ligne du jeu, aux mêmes conditions ; « Déplacer vers… » seulement quand une conversation est cochée
     "html.dcc-maquette:not(.dcc-cede-messagerie) #liste_messages:is(.dcc-options, .dcc-selection, :has(li.message .selecteur input:checked)) > .dcc-dossiers { display: flex !important; flex-wrap: wrap; align-items: center; gap: 6px; padding: 0 0 8px; }",
@@ -2028,7 +2029,7 @@
     ".dcc-im-recherche { flex: none; display: flex; align-items: center; gap: 4px; padding: 6px 10px; border-bottom: 1px solid rgb(var(--dcc-filet-rvb) / .14); } .dcc-im-recherche[hidden] { display: none; }",
     ".dcc-im-rech-compte { flex: none; min-width: 44px; text-align: center; color: var(--dcc-t3); font: 12px var(--dcc-chiffres); }",
     ".dcc-im-msg.dcc-im-pale { opacity: .3; } .dcc-im-msg.dcc-im-trouve .dcc-im-bulle { box-shadow: inset 0 0 0 1px var(--dcc-or); } .dcc-im-msg.dcc-im-courant .dcc-im-bulle { box-shadow: inset 0 0 0 2px var(--dcc-or), 0 0 0 3px rgb(var(--dcc-or-rvb) / .2); }",
-    "html.dcc-maquette:not(.dcc-cede-messagerie) .dcc-im.dcc-courrier { display: flex; flex-direction: column; position: fixed; box-sizing: border-box; overflow: hidden; contain: layout paint; resize: both; min-width: 340px; min-height: 320px;",
+    "html.dcc-maquette:not(.dcc-cede-messagerie) .dcc-im.dcc-courrier { display: flex; flex-direction: column; position: fixed; box-sizing: border-box; overflow: hidden; contain: layout paint; resize: both; min-width: min(340px, calc(100vw - 16px)); min-height: min(320px, calc(100vh - 16px));",
     "  max-width: calc(100vw - 16px); max-height: calc(100vh - 16px); background: var(--dcc-menu); border-radius: 12px; color: var(--dcc-t1); font: 13px/1.45 'Segoe UI', Arial, sans-serif; text-align: left;",
     "  box-shadow: inset 0 0 0 1px rgb(var(--dcc-filet-rvb) / .22), 0 18px 48px rgb(0 0 0 / .65); }",
     ".dcc-courrier.dcc-replie { height: auto !important; min-height: 0; resize: horizontal; } .dcc-courrier.dcc-replie > :not(.dcc-im-tete) { display: none !important; }",
@@ -2957,6 +2958,13 @@
     "html.dcc-maquette #zone_inventaire > :is(#ciseauxInventaire, #poubelleInventaire, #statsInventaire, #stockInventaire):is(:hover, .hover, .selected) { background: rgb(var(--dcc-acc-rvb) / .16) !important;",
     "  border-color: var(--dcc-acc) !important; color: var(--dcc-t1) !important; }",
     "html.dcc-maquette #zone_inventaire > #stockInventaire { right: 10px !important; } html.dcc-maquette #zone_inventaire > #statsInventaire { right: 34px !important; }",
+    // 12/11/2026 : les stats du jeu (#annexe_inventaire.fakeToolTip, au plan 3000), ouvertes et refermées par « détails »
+    // (#statsInventaire, bascule du jeu au clic). Le jeu les pose au-dessus de la zone (top: -25 %) : avec les outils
+    // remontés dans la plaque, elles couvraient « détails », et le clic qui devait les refermer tombait sur elles. Posées
+    // sous la plaque, à droite, sans la flèche du bas ; elles défilent si la place manque
+    "html.dcc-maquette #zone_inventaire #annexe_inventaire.fakeToolTip { top: " + (PLAQUE_V3 + 4) + "px !important; bottom: auto !important; right: 8px !important; left: auto !important; width: min(75%, 280px) !important; box-sizing: border-box;",
+    "  max-height: calc(100% - " + (PLAQUE_V3 + 12) + "px); overflow-y: auto; scrollbar-width: thin; }",
+    "html.dcc-maquette #zone_inventaire #annexe_inventaire.fakeToolTip > .deco4 { display: none !important; }",
     "html.dcc-maquette #zone_inventaire > #poubelleInventaire { right: 58px !important; } html.dcc-maquette #zone_inventaire > #ciseauxInventaire { right: 82px !important; }",
     // 2. Le registre : une ligne par fait, « ÉTIQUETTE · valeur ». La ligne de l'emploi et celle du logement sont le « GO » du
     // jeu lui-même, étendu sous la ligne (derrière le texte, qui laisse passer le clic) : le clic arrive à son élément, comme
@@ -3182,7 +3190,7 @@
     W124 + " .dcc-im-bmenu:not([hidden]) { position: absolute; top: calc(100% + 4px); right: 0; z-index: 6; display: flex; flex-direction: column; width: 200px; " + MENU124 + " }",
     W124 + " .dcc-im-moi .dcc-im-bmenu:not([hidden]) { right: auto; left: 0; }",
     W124 + " .dcc-im-bmenu > button { width: 100%; text-align: left; }",
-    W124 + " .dcc-im-sig { display: block; margin: 2px 0 0; padding: 0 !important; min-height: 20px; border: 0 !important; background: none !important; color: var(--dcc-t3) !important; font: 11.5px 'Segoe UI', Arial, sans-serif !important; text-decoration: none !important; cursor: pointer; }",
+    W124 + " .dcc-im-sig { display: flex; align-items: center; margin: 2px 0 0; padding: 0 !important; min-height: 24px !important; border: 0 !important; background: none !important; color: var(--dcc-t3) !important; font: 11.5px 'Segoe UI', Arial, sans-serif !important; text-decoration: none !important; cursor: pointer; }",
     W124 + " .dcc-im-sig:hover { color: var(--dcc-t1) !important; }",
     W124 + " .dcc-im-sigt:not([hidden]) { display: block; margin: 1px 0 2px; color: var(--dcc-t2); font: italic 12px 'Segoe UI', Arial, sans-serif; white-space: pre-wrap; }",
     // Une seule rangée de saisie : l'encart, ✎ et sa rangée restent dans la page, cachés ; la puce de l'entête dans le champ
@@ -3195,7 +3203,7 @@
     W124 + " .dcc-im-champ-barre > .dcc-im-raccourci { margin-left: auto; }",
     W124 + " .dcc-im-champ textarea { flex: 0 0 auto !important; width: 100% !important; min-width: 0; margin: 0 !important; padding: 2px 3px 7px !important; border: 0 !important; border-radius: 0 !important; background: transparent !important; box-shadow: none !important; outline: none !important; }",
     W124 + ".dcc-nouveau .dcc-im-champ { align-self: stretch; } " + W124 + ".dcc-nouveau .dcc-im-ligne { align-items: stretch; }",
-    W124 + " .dcc-im-puce-e { display: inline-flex !important; align-items: center; gap: 6px; flex: 0 1 auto; min-width: 0; height: 22px !important; max-width: 220px; margin: 0 !important; padding: 0 7px !important; border-radius: 8px !important;",
+    W124 + " .dcc-im-puce-e { display: inline-flex !important; align-items: center; gap: 6px; flex: 0 1 auto; min-width: 0; height: 24px !important; max-width: 220px; margin: 0 !important; padding: 0 7px !important; border-radius: 8px !important;",
     "  background: rgb(var(--dcc-filet-rvb) / .12) !important; color: var(--dcc-t1) !important; font: 12.5px 'Segoe UI', Arial, sans-serif !important; white-space: nowrap; text-transform: none !important; }",
     W124 + " .dcc-im-puce-e:hover { background: rgb(var(--dcc-filet-rvb) / .2) !important; }",
     W124 + " .dcc-im-puce-nom { overflow: hidden; text-overflow: ellipsis; } " + W124 + " .dcc-im-puce-e svg { flex: none; width: 12px; height: 12px; color: var(--dcc-t3); }",
@@ -3216,7 +3224,7 @@
     W124 + " .dcc-im-a-lib { margin: 0 2px 0 4px; color: var(--dcc-t3); font: 12.5px 'Segoe UI', Arial, sans-serif; }",
     W124 + " .dcc-im-a-puce { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 2px 0 10px; border-radius: 999px; background: rgb(var(--dcc-filet-rvb) / .14); color: var(--dcc-t1); font: 12.5px 'Segoe UI', Arial, sans-serif; }",
     W124 + " .dcc-im-a-puce em { font: normal 11px/16px 'Segoe UI', Arial, sans-serif; color: var(--dcc-t2); border: 1px solid rgb(var(--dcc-filet-rvb) / .3); border-radius: 999px; padding: 0 6px; }",
-    W124 + " .dcc-im-a-puce button { width: 22px !important; height: 22px !important; min-height: 22px; padding: 0 !important; border-radius: 50% !important; } " + W124 + " .dcc-im-a-puce svg { width: 11px; height: 11px; }",
+    W124 + " .dcc-im-a-puce button { width: 24px !important; height: 24px !important; min-height: 24px; padding: 0 !important; border-radius: 50% !important; } " + W124 + " .dcc-im-a-puce svg { width: 11px; height: 11px; }",
     W124 + " .dcc-im-a-saisie { flex: 1 1 120px; min-width: 120px; height: 28px !important; margin: 0 !important; padding: 0 4px !important; border: 0 !important; background: transparent !important; box-shadow: none !important; outline: none !important; }",
     // Mouvement : les menus s'ouvrent en 120 ms, ⌄ apparaît en fondu (rien si tu as demandé moins d'animations)
     "@media (prefers-reduced-motion: no-preference) {",
@@ -4142,6 +4150,12 @@
     "html.dcc-maquette:not(.dcc-cede-messagerie) [id^='db_message_'] .texte mark.dcc-nom { background: rgb(240 180 60 / .25); color: var(--dcc-or-texte); border-radius: 4px; padding: 0 2px; }",
     "[id^='db_message_'] .texte mark.dcc-nom { background: none; color: inherit; padding: 0; }",
     "html.dcc-maquette:not(.dcc-cede-messagerie) #liste_messages li.message.dcc-muet .message_titre::after { content: " + imageIcone("sourdine", V3.calme, 12) + " / ' en sourdine'; margin-left: 4px; vertical-align: -1px; }",
+    "html.dcc-maquette:not(.dcc-cede-messagerie) #liste_messages li.message.dcc-archivee:not(.dcc-muet) .message_titre[data-dcc-titre]::after { content: attr(data-dcc-titre) ' · archivée'; font-size: 13.5px; }",
+    "html.dcc-maquette:not(.dcc-cede-messagerie) #liste_messages li.message.dcc-muet:not(.dcc-archivee) .message_titre[data-dcc-titre]::after { content: attr(data-dcc-titre) ' ' " + imageIcone("sourdine", V3.calme, 12) + " / attr(data-dcc-titre) ', en sourdine'; font-size: 13.5px; margin-left: 0; vertical-align: baseline; }",
+    "html.dcc-maquette:not(.dcc-cede-messagerie) #liste_messages li.message.dcc-muet.dcc-archivee .message_titre::after { content: " + imageIcone("sourdine", V3.calme, 12) + " ' · archivée' / ' en sourdine, archivée'; color: var(--dcc-t3); font-weight: 400; }",
+    "html.dcc-maquette:not(.dcc-cede-messagerie) #liste_messages li.message.dcc-muet.dcc-archivee .message_titre[data-dcc-titre]::after { content: attr(data-dcc-titre) ' ' " + imageIcone("sourdine", V3.calme, 12) + " ' · archivée' / attr(data-dcc-titre) ', en sourdine, archivée'; font-size: 13.5px; margin-left: 0; vertical-align: baseline; color: inherit; font-weight: inherit; }",
+    "html.dcc-maquette:not(.dcc-cede-messagerie) #liste_messages li.message.dcc-muet .message_titre[data-dcc-sans-titre]::after { content: '(sans titre) ' " + imageIcone("sourdine", V3.calme, 12) + " / '(sans titre), en sourdine'; color: var(--dcc-t3); font-weight: 400; }",
+    "html.dcc-maquette:not(.dcc-cede-messagerie) #liste_messages li.message.dcc-muet.dcc-archivee .message_titre[data-dcc-sans-titre]::after { content: '(sans titre) ' " + imageIcone("sourdine", V3.calme, 12) + " ' · archivée' / '(sans titre), en sourdine, archivée'; }",
     "html.dcc-maquette:not(.dcc-cede-messagerie) :is([id^='db_message_'], #db_new_message) .dcc-outils-rp { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0; }",
     "html.dcc-maquette:not(.dcc-cede-messagerie) [id^='db_message_'] .dcc-entete { display: inline-block; margin: 0 4px 4px 0; padding: 1px 8px; border-radius: 999px;",
     "  background: rgb(var(--dcc-or-rvb) / .14); box-shadow: inset 0 0 0 1px rgb(var(--dcc-or-rvb) / .45); color: var(--dcc-or-texte); font: 600 12px/1.6 'Segoe UI', Arial, sans-serif; }",
@@ -5429,6 +5443,14 @@
   function brancherListeMessages() {
     var liste = document.getElementById("liste_messages");
     if (!liste) return;
+    // Le jeu a refait sa liste pendant qu'un menu d'une ligne était ouvert : la ligne n'existe plus, le menu se ferme et le
+    // focus revient à la recherche de la liste au lieu de tomber sur la page (lot 125, K10)
+    if (popListe && popListe.dccBouton && !popListe.dccBouton.isConnected) {
+      var avaitFocus = popListe.contains(document.activeElement);
+      fermerPopListe(false);
+      var f = avaitFocus && liste.querySelector(":scope > .dcc-filtre");
+      if (f) f.focus({ preventScroll: true });
+    }
     // Lot 124 : dans le Pupitre, la liste de la maquette Courrier-v4 (plus de puces : « N non lues » et « Archivées » en pied)
     var c124 = courrier124();
     if (c124 && filtreConv === "epinglees") filtreConv = "toutes";
@@ -5569,7 +5591,8 @@
   var MAX_EPINGLEES = 5;
   // Le dernier message vu ici de chaque conversation (qui, toi ou non, début du texte, combien d'autres participants), noté
   // à chaque mise à jour d'une fenêtre ouverte ; 300 conversations au plus, sur cet appareil
-  var magDernierMot = magasin("dernierMotConv"), dernierMot = (function (b) {
+  var magDernierMot = magasin("dernierMotConv"), dernierMot = lireDernierMot(magDernierMot.lire());
+  function lireDernierMot(b) {
     var o = Object.create(null);
     if (b && typeof b === "object") Object.keys(b).slice(0, 300).forEach(function (c) {
       var v = b[c];
@@ -5579,7 +5602,7 @@
         n: Number.isFinite(v.n) ? Math.max(0, Math.min(500, Math.round(v.n))) : 0 };
     });
     return o;
-  })(magDernierMot.lire());
+  }
   function courrier124() { return pupitre() && racine.classList.contains("dcc-maquette") && !racine.classList.contains("dcc-cede-messagerie"); }
   function classeSi(n, c, oui) { if (n && n.classList.contains(c) !== !!oui) n.classList.toggle(c, !!oui); }
   function noterDernierMot(conv, msgs, autres) {
@@ -5590,6 +5613,9 @@
     var a = dernierMot[conv];
     if (a && a.id === v.id && a.x === v.x && a.n === v.n && a.o.join("|") === v.o.join("|")) return;
     dernierMot[conv] = v;
+    // (lot 125, K16 : ce qu'un autre onglet a noté est repris, le plus récent l'emporte)
+    var st = lireDernierMot(magDernierMot.lire());
+    Object.keys(st).forEach(function (c) { if (c !== conv && (!dernierMot[c] || st[c].t > dernierMot[c].t)) dernierMot[c] = st[c]; });
     var cles = Object.keys(dernierMot);
     if (cles.length > 300) cles.sort(function (x, y) { return dernierMot[x].t - dernierMot[y].t; }).slice(0, cles.length - 300).forEach(function (c) { if (c !== conv) delete dernierMot[c]; });
     magDernierMot.ecrire(dernierMot);
@@ -5641,7 +5667,7 @@
     classeSi(li, "dcc-groupe", groupe);
     if (groupe) {
       var auteur = ((li.querySelector(".message_auteur") || {}).textContent || "").trim(), second = d.o.filter(function (n) { return !egal(n, auteur); })[0] || "";
-      var init = second ? initiales(second) : "+" + d.n;
+      var init = second ? initiales(second) : "+" + Math.max(1, d.n - 1);
       if (!av2) { av2 = el("span", "dcc-av2"); av2.setAttribute("aria-hidden", "true"); li.appendChild(av2); }
       if (av2.textContent !== init) { av2.textContent = init; av2.style.setProperty("--dcc-av-fond", second ? "hsl(" + teinte(second) + " 28% 40%)" : "var(--dcc-ardoise-3)"); }
     } else if (av2) av2.remove();
@@ -5668,6 +5694,7 @@
     var p = popListe, bt = p.dccBouton;
     popListe = null;
     p.remove();
+    if (p.dccDefile) p.dccDefile[0].removeEventListener("scroll", p.dccDefile[1]);
     if (bt) { bt.setAttribute("aria-expanded", "false"); var li = bt.closest("li"); if (li) li.classList.remove("dcc-l-actif"); if (rendre && bt.isConnected) bt.focus(); }
   }
   document.addEventListener("pointerdown", function (e) {
@@ -5705,6 +5732,9 @@
     liste.appendChild(p);
     popListe = p;
     bt.setAttribute("aria-expanded", "true");
+    // La liste défile sous le menu : il ne suivrait pas sa ligne, il se ferme (lot 125, K10)
+    var contenu = liste.querySelector(":scope > .content");
+    if (contenu) { var auDefile = function () { if (popListe === p) fermerPopListe(false); }; contenu.addEventListener("scroll", auDefile, { passive: true }); p.dccDefile = [contenu, auDefile]; }
     // Sous la ligne (ou le bouton), au-dessus si la place manque en bas
     var rl = liste.getBoundingClientRect(), ra = (ancre || bt).getBoundingClientRect(), h = p.offsetHeight;
     var haut = ra.bottom - rl.top + 2;
@@ -5713,7 +5743,14 @@
     var premier = p.querySelector("button:not([disabled])");
     if (premier) premier.focus({ preventScroll: true });
   }
+  // Relus avant d'être changés : deux onglets ouverts ne s'effacent plus l'un l'autre (lot 125, K16 ; M1 de l'audit)
+  function relireDrapeaux(mag, liste) { var b = mag.lire(); if (b && typeof b === "object") chargerDrapeaux(b, liste, 500); }
+  function fusionnerStocke(mag, cible, valide) {
+    var b = mag.lire();
+    if (b && typeof b === "object") Object.keys(b).forEach(function (k) { if (/^\d+$/.test(k) && !(k in cible)) { var v = valide(b[k]); if (v != null) cible[k] = v; } });
+  }
   function basculerDrapeauConv(id, liste, mag, dire) {
+    relireDrapeaux(mag, liste);
     if (liste[id]) delete liste[id]; else liste[id] = true;
     mag.ecrire(liste);
     brancherListeMessages();
@@ -5721,12 +5758,24 @@
     if (fenetresIm[id] && b) { majOutilsMessage(b, id); majIm(b, id); }
     if (dire) annoncerPupitre(dire);
   }
-  // Cinq épinglées au plus (comme Instagram et WhatsApp) : au-delà, la sixième attend qu'une autre se libère
+  // Cinq épinglées au plus (comme Instagram et WhatsApp) : au-delà, la sixième attend qu'une autre se libère. Ne comptent
+  // que celles que tu vois dans le dossier affiché, celles que tu peux désépingler (lot 125, K2 : les épingles d'un autre
+  // dossier ou d'une conversation supprimée bloquaient sans qu'on puisse les retirer) ; le refus les nomme
+  function epingleesVisibles() {
+    return Array.prototype.filter.call(document.querySelectorAll("#liste_messages li.message[id^='message_']"), function (li) { return !!convEpinglees[li.id.slice(8)]; });
+  }
   function basculerEpingleConv(id) {
-    if (!convEpinglees[id] && Object.keys(convEpinglees).length >= MAX_EPINGLEES) { annoncerPupitre("Cinq conversations épinglées au plus : désépingle-en une d'abord"); return; }
+    relireDrapeaux(magConvEp, convEpinglees);
+    var vis = convEpinglees[id] ? [] : epingleesVisibles();
+    if (vis.length >= MAX_EPINGLEES) {
+      var noms = vis.map(function (li) { var c = li.id.slice(8), t = li.querySelector(".message_titre"); return titresConv[c] || (t && t.textContent.trim()) || "(sans titre)"; });
+      annoncerPupitre("Cinq conversations épinglées au plus. Désépingle d'abord : " + noms.join(", "));
+      return;
+    }
     basculerDrapeauConv(id, convEpinglees, magConvEp, convEpinglees[id] ? "Conversation désépinglée" : "Conversation épinglée");
   }
   function basculerArchiveConv(id) {
+    relireDrapeaux(magConvArch, convArchivees); relireDrapeaux(magConvEp, convEpinglees);
     var arch = !convArchivees[id];
     if (arch) { convArchivees[id] = true; if (convEpinglees[id]) { delete convEpinglees[id]; magConvEp.ecrire(convEpinglees); } }
     else delete convArchivees[id];
@@ -5738,15 +5787,21 @@
   }
   function menuLigne124(li, bt) {
     var id = li.id.slice(8), nonLue = li.classList.contains("new");
+    // Relus à l'ouverture : le menu dit l'état réel, même changé dans un autre onglet (lot 125, K16 ; sinon « Épingler »
+    // désépinglait une conversation qu'un autre onglet venait d'épingler)
+    relireDrapeaux(magConvEp, convEpinglees); relireDrapeaux(magSourdines, sourdines); relireDrapeaux(magConvArch, convArchivees);
     li.classList.add("dcc-l-actif");
     ouvrirPopListe(bt, function (p, entree) {
       p.setAttribute("aria-label", "Actions sur la conversation");
       // Marquer lue sans ouvrir : le jeu n'en a pas le moyen ; non lue, oui (sa fonction notReadMessage)
-      if (!nonLue) entree("Marquer comme non lue", function () {
+      if (!nonLue) entree("Marquer non lue", function () {
         var m = jeuMessagerie();
         if (!m || typeof m.notReadMessage !== "function") return;
         nonLuMarqueA = Date.now();
         try { m.notReadMessage(+id); } catch (x) { /* le jeu dira */ }
+        // Ouverte, la conversation se refermait relue aussitôt par le rechargement seul : on la ferme, comme le fait
+        // « Marquer non lue » dans sa fenêtre (lot 125, K3)
+        if (fenetresIm && fenetresIm[id]) fermerIm(id, true);
       });
       entree(convEpinglees[id] ? "Désépingler" : "Épingler", function () { basculerEpingleConv(id); });
       entree(sourdines[id] ? "Retirer la sourdine" : "Sourdine", function () { basculerDrapeauConv(id, sourdines, magSourdines, sourdines[id] ? "Sourdine retirée" : "Conversation en sourdine"); });
@@ -6089,17 +6144,20 @@
     // Ils sont posés en TÊTE de la liste (leur rang d'affichage les place) : le jeu reprend la suite après sa dernière ligne
     // (li:last-child, son data-numero) ; un intitulé en dernier lui faisait redemander le début, et les anciennes ne venaient pas
     var ul = lis.length ? lis[0].parentNode : null, groupe = function (r) { return !r.ep ? "Épinglées" : mode === "nonlus" && !r.nouveau ? "Non lues" : "Conversations"; };
-    var noms = [], k = 0, avecSections = trie && pupitre() && rangs.length && groupe(rangs[0]) !== groupe(rangs[rangs.length - 1]);
+    // Seules les lignes montrées comptent : en vue « non lues » ou « archivées », un intitulé ne reste plus au-dessus d'une
+    // section vide (lot 125, K8)
+    var montre = function (r) { return !r.li.classList.contains("dcc-masque"); }, vis = rangs.filter(montre);
+    var noms = [], k = 0, avecSections = trie && pupitre() && vis.length && groupe(vis[0]) !== groupe(vis[vis.length - 1]);
     rangs.forEach(function (r) {
       var g = groupe(r);
-      if (avecSections && noms[noms.length - 1] !== g) { noms.push(g); k++; }
+      if (avecSections && montre(r) && noms[noms.length - 1] !== g) { noms.push(g); k++; }
       var v = trie ? String(k++) : "";
       if (r.li.style.order !== v) r.li.style.order = v;
     });
     if (ul) Array.prototype.forEach.call(ul.querySelectorAll(":scope > li.dcc-section"), function (li) { if (noms.indexOf(li.textContent) < 0) li.remove(); });
     if (avecSections && ul) {
       var k2 = 0;
-      rangs.forEach(function (r) {
+      vis.forEach(function (r) {
         var g = groupe(r), ordre = parseInt(r.li.style.order, 10) - 1, h = ul.querySelector(":scope > li.dcc-section[data-g='" + g + "']");
         if (k2 === noms.indexOf(g)) {
           if (!h) { h = el("li", "dcc-section", g); h.setAttribute("data-g", g); h.setAttribute("role", "presentation"); ul.insertBefore(h, ul.firstChild); }
@@ -6170,7 +6228,7 @@
     bloc.appendChild(el("p", "dcc-res-tete" + (res.length ? "" : " dcc-res-vide"), courrier124() ? (res.length ? "Messages · " + res.length : "Aucun message lu ici ne contient « " + brut + " »") : res.length ? "Dans les messages gardés ici · " + res.length : "Aucun message gardé ici ne contient « " + brut + " »"));
     res.slice(0, 12).forEach(function (r) {
       var b = el("button", "dcc-res"), li = document.getElementById("message_" + r.conv);
-      var titre = titresConv[r.conv] || (li ? ((li.querySelector(".message_titre") || {}).textContent || "").trim() : "") || "Conversation " + r.conv;
+      var titre = titresConv[r.conv] || (li ? ((li.querySelector(".message_titre") || {}).textContent || "").trim() : "") || "(sans titre)";
       b.type = "button";
       b.append(el("b", null, titre), el("time", null, dateCourte(r.t)), extraitAvec(r.texte, q));
       b.addEventListener("click", function () { ouvrirConv(r.conv, brut); });
@@ -6885,18 +6943,43 @@
     noms.slice(0, 300).forEach(function (n) { var o = el("option"), r = relationDe(n); o.value = n; if (r) o.label = r; liste.appendChild(o); });
     if (champ.getAttribute("list") !== liste.id) champ.setAttribute("list", liste.id);
   }
+  // Lot 125, A1 : le jeu déclenche l'événement jQuery « nouveauMessage » sur #zone_messagerie quand un message arrive
+  // (messageReceived : id_conversation, folder_id, quantity), même dans un autre dossier que celui affiché. DC Confort
+  // l'écoute pour savoir QUELLE conversation a reçu un message, sans rien demander au jeu. (openMessage et notReadMessage
+  // le déclenchent aussi, mais sans id_conversation : ils ne comptent pas.)
+  var arriveesConv = [], zoneEcoutee = null;
+  function ecouterArrivees() {
+    var z = document.getElementById("zone_messagerie"), jq = pageWin.jQuery || pageWin.$;
+    if (!z || z === zoneEcoutee || typeof jq !== "function") return;
+    try {
+      var jz = jq(z);
+      if (!jz || typeof jz.on !== "function") return;
+      jz.on("nouveauMessage", function (e) {
+        var c = e && e.id_conversation != null ? String(e.id_conversation) : "", q = parseInt(e && e.quantity, 10);
+        if (!/^\d+$/.test(c) || q <= 0) return;
+        arriveesConv.push({ conv: c, dossier: e.folder_id != null ? String(e.folder_id) : "", t: Date.now() });
+        if (arriveesConv.length > 20) arriveesConv.splice(0, arriveesConv.length - 20);
+      });
+      zoneEcoutee = z;
+    } catch (x) { /* jQuery du jeu absent : on garde la lecture du compte seule */ }
+  }
   // Un nouveau message : le nombre de non-lus de l'en-tête monte (jamais au chargement de la page)
   function verifierNonLus() {
+    ecouterArrivees();
     var n = parseInt(((document.querySelector("#zone_messagerie .nbrmessage") || {}).textContent || "").replace(/\D/g, ""), 10) || 0;
-    // En sourdine : si toutes les conversations non lues de la liste affichée sont en sourdine, rien ne sonne
+    // Les conversations qui viennent de recevoir un message, d'après le jeu (A1) ; au-delà de 8 s, elles sont oubliées
+    var maint = Date.now(), arrivees = arriveesConv.filter(function (a) { return maint - a.t < 8000; });
+    // En sourdine : la conversation qui a reçu le message, quand le jeu l'a dite (lot 125, M3 de l'audit : avant, toutes les
+    // non lues de la liste affichée devaient être en sourdine) ; sinon l'ancienne règle
     var nonLues = Array.prototype.slice.call(document.querySelectorAll("#liste_messages li.message.new[id^='message_']"));
-    var muettes = nonLues.length > 0 && nonLues.every(function (li) { return sourdines[li.id.slice(8)]; });
+    var muettes = arrivees.length ? arrivees.every(function (a) { return sourdines[a.conv]; }) : nonLues.length > 0 && nonLues.every(function (li) { return sourdines[li.id.slice(8)]; });
     // « Marquer non lu » fait monter le compte : ce n'est pas un message qui arrive (lot 101, M20)
     var hausse = dernierNonLus !== null && n > dernierNonLus && Date.now() - nonLuMarqueA > 2000;
     dernierNonLus = n;
+    if (hausse) arriveesConv = []; else if (arrivees.length !== arriveesConv.length) arriveesConv = arrivees;
     if (hausse && sons && !muettes) sons.jouer("message");
-    if (hausse && !muettes) alerteCourrier(n, nonLues);
-    if (hausse) actualiserImOuvertes();
+    if (hausse && !muettes) alerteCourrier(n, nonLues, arrivees.filter(function (a) { return !sourdines[a.conv]; }));
+    if (hausse) actualiserImOuvertes(arrivees.map(function (a) { return a.conv; }));
   }
   var nonLuMarqueA = 0;
   function majMessagerie() {
@@ -6928,10 +7011,15 @@
   // Les teintes d'avant le lot 96 (plus vives), déjà choisies pour une conversation, prennent leur version adoucie
   var TEINTES_ADOUCIES = { "#4fd1c5": "#5fb3ad", "#6fd49a": "#7bb894", "#e0b25e": "#cfa865", "#e8707f": "#cf8590", "#d58ad0": "#b996c0", "#a594f0": "#9a92d4", "#c9d3df": "#b4bfcc",
     "#4b3fa8": "#433f86", "#1b6b56": "#1f6152", "#7a3456": "#683a50", "#6e5320": "#5f4a24" };
-  (function (b) { if (b && typeof b === "object") Object.keys(b).slice(-300).forEach(function (k) { var t = b[k]; if (/^\d+$/.test(k) && t && typeof t === "object") { var r = {}; ["acc", "moi", "fond", "entete"].forEach(function (c) { if (typeof t[c] === "string" && t[c].length <= 80) r[c] = TEINTES_ADOUCIES[t[c].toLowerCase()] || t[c]; }); if (Object.keys(r).length) themesConv[k] = r; } }); })(magThemes.lire());
-  (function (b) { if (b && typeof b === "object") Object.keys(b).slice(-500).forEach(function (k) { if (/^\d+$/.test(k) && typeof b[k] === "string") dossiersConvMem[k] = b[k].slice(0, 40); }); })(magDossiersConv.lire());
+  // (lot 125, K4 : ces chargeurs servent aussi à l'import des réglages, qui oubliait le Courrier)
+  function viderObjet(o) { Object.keys(o).forEach(function (k) { delete o[k]; }); }
+  function chargerThemes(b) { viderObjet(themesConv); if (b && typeof b === "object") Object.keys(b).slice(-300).forEach(function (k) { var t = b[k]; if (/^\d+$/.test(k) && t && typeof t === "object") { var r = {}; ["acc", "moi", "fond", "entete"].forEach(function (c) { if (typeof t[c] === "string" && t[c].length <= 80) r[c] = TEINTES_ADOUCIES[t[c].toLowerCase()] || t[c]; }); if (Object.keys(r).length) themesConv[k] = r; } }); }
+  function chargerDossiersConv(b) { viderObjet(dossiersConvMem); if (b && typeof b === "object") Object.keys(b).slice(-500).forEach(function (k) { if (/^\d+$/.test(k) && typeof b[k] === "string") dossiersConvMem[k] = b[k].slice(0, 40); }); }
+  chargerThemes(magThemes.lire());
+  chargerDossiersConv(magDossiersConv.lire());
   var magTitres = magasin("titresConv"), titresConv = Object.create(null);
-  (function (b) { if (b && typeof b === "object") Object.keys(b).slice(-300).forEach(function (k) { if (/^\d+$/.test(k) && typeof b[k] === "string") titresConv[k] = b[k].slice(0, 200); }); })(magTitres.lire());
+  function chargerTitres(b) { viderObjet(titresConv); if (b && typeof b === "object") Object.keys(b).slice(-300).forEach(function (k) { if (/^\d+$/.test(k) && typeof b[k] === "string") titresConv[k] = b[k].slice(0, 200); }); }
+  chargerTitres(magTitres.lire());
   var magFilVus = magasin("filVus"), filVus = Object.create(null), ordreVus = [];
   chargerVus(magFilVus.lire());
   function chargerVus(b) {
@@ -7036,15 +7124,15 @@
     if (e.key !== "Enter" || e.isComposing || e.altKey || e.shiftKey) return false;
     return reglages.entreeLigne ? e.ctrlKey || e.metaKey : !(e.ctrlKey || e.metaKey);
   }
-  function aideEnvoiIm() { return reglages.entreeLigne ? "Ctrl Entrée envoie, Entrée va à la ligne" : "Entrée envoie, Maj Entrée pour une ligne"; }
+  function aideEnvoiIm() { return reglages.entreeLigne ? "Ctrl+Entrée envoie, Entrée va à la ligne" : "Entrée envoie, Maj+Entrée pour une ligne"; }
   // Le réglage a changé : les fenêtres ouvertes le disent dans leur champ et sur leur bouton
   function majAidesEnvoiIm() {
     if (!fenetresIm) return; // appelé par appliquer() avant que le Courrier soit prêt
     Object.keys(fenetresIm).forEach(function (conv) {
       var w = fenetresIm[conv], ta = w.querySelector(".dcc-im-ligne textarea"), bt = w.querySelector(".dcc-im-envoyer"), m = w.querySelector(".dcc-im-entree");
-      if (m) m.textContent = reglages.entreeLigne ? "Entrée : envoyer au lieu d'aller à la ligne" : "Entrée : aller à la ligne (Ctrl Entrée envoie)";
+      if (m) m.textContent = reglages.entreeLigne ? "Entrée : envoyer au lieu d'aller à la ligne" : "Entrée : aller à la ligne (Ctrl+Entrée envoie)";
       if (ta) ta.title = aideEnvoiIm();
-      if (bt) bt.title = reglages.entreeLigne ? "Envoyer (Ctrl Entrée)" : "Envoyer (Entrée)";
+      if (bt) bt.title = reglages.entreeLigne ? "Envoyer (Ctrl+Entrée)" : "Envoyer (Entrée)";
       var rc = w.querySelector(".dcc-im-raccourci");
       if (rc) ecrireSiChange(rc, reglages.entreeLigne ? "Ctrl+Entrée" : "Entrée");
     });
@@ -7468,11 +7556,14 @@
     };
     var poser = function (l) { cible.value = l.join(", "); dessiner(); noter(); };
     var ajouter = function () {
-      var v = saisieA.value.split(/\s*[,;]\s*/).map(function (n) { return n.replace(/\s+/g, " ").trim(); }).filter(function (n) { return n && n.length <= 40; });
+      var brut = saisieA.value.split(/\s*[,;]\s*/).map(function (n) { return n.replace(/\s+/g, " ").trim(); }).filter(Boolean), v = brut.filter(function (n) { return n.length <= 40; });
+      // Un nom trop long ou au-delà de 20 n'est plus perdu sans le dire (lot 125, K12)
+      if (v.length < brut.length) annoncerPupitre("Un nom fait 40 signes au plus : « " + brut.filter(function (n) { return n.length > 40; })[0].slice(0, 30) + "… » n'est pas ajouté");
       saisieA.value = "";
       if (!v.length) return;
       var l = noms();
       v.forEach(function (n) { if (!l.some(function (d) { return egal(d, n); })) l.push(n); });
+      if (l.length > 20) annoncerPupitre("20 destinataires au plus : " + l.slice(20).join(", ") + " n'" + (l.length > 21 ? "ont" : "a") + " pas été ajouté" + (l.length > 21 ? "s" : ""));
       poser(l.slice(0, 20));
     };
     saisieA.addEventListener("keydown", function (e) {
@@ -7567,6 +7658,8 @@
         var bts = Array.prototype.slice.call(bm.querySelectorAll("button")), i = bts.indexOf(document.activeElement);
         if (e.key === "Escape") { e.preventDefault(); fermerMenuBulle(bm, true); }
         else if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); bts[(i + (e.key === "ArrowDown" ? 1 : -1) + bts.length) % bts.length].focus(); }
+        // Tab sort du menu et le ferme, comme les autres menus du Courrier (lot 125, K14)
+        else if (e.key === "Tab") fermerMenuBulle(bm, false);
       });
       bm.dccBouton = autres;
       outils.append(rep, autres, bm);
@@ -7593,10 +7686,20 @@
     r.appendChild(bt);
     return r;
   }
+  // Échap dans une fenêtre du Courrier qui a un texte en cours : il ne ferme pas du premier coup (le brouillon serait gardé,
+  // mais la fenêtre disparaissait sous tes doigts) ; un second Échap dans les 2 s ferme (lot 125, K5, C11 de l'audit)
+  function echapFerme(w) {
+    var plein = Array.prototype.some.call(w.querySelectorAll(".dcc-im-champ textarea, .dcc-im-sujet, input[name='nm_sujet']"), function (c) { return !!c.value.trim(); });
+    if (!plein || Date.now() - (w.dccEchapA || 0) < 2000) return true;
+    w.dccEchapA = Date.now();
+    annoncerPupitre("Ton message n'est pas vide : Échap encore pour fermer (le brouillon est gardé)");
+    return false;
+  }
   // Place et taille : celles que tu as laissées (bornées à l'écran), sinon au centre ; décalées si plusieurs sont ouvertes
   function placerFenetreIm(w, rang) {
     var vw = window.innerWidth, vh = window.innerHeight, p = placeCourrier || { w: 520, h: Math.min(640, vh - 120), x: Math.round(vw / 2 - 260), y: 70 };
-    var lw = Math.max(340, Math.min(p.w, vw - 16)), lh = Math.max(320, Math.min(p.h, vh - 16));
+    // Jamais plus large ni plus haute que l'écran, même sous 356 px (lot 125, K14 : 340 px au moins débordaient)
+    var lw = Math.min(vw - 16, Math.max(340, Math.min(p.w, vw - 16))), lh = Math.min(vh - 16, Math.max(320, Math.min(p.h, vh - 16)));
     var x = Math.max(8, Math.min(p.x + rang * 24, vw - lw - 8)), y = Math.max(8, Math.min(p.y + rang * 24, vh - lh - 8));
     // Lot 124 : la place libre d'abord (la deuxième fenêtre à côté de la première, aucune sur la liste) ; la cascade sinon
     var libre = placeLibreIm(lw, lh, { x: Math.max(8, Math.min(p.x, vw - lw - 8)), y: p.y });
@@ -7631,6 +7734,7 @@
   }
   function fermerIm(conv, aussiJeu) {
     var w = fenetresIm[conv], b = boiteConv(conv), avait = !!w && w.contains(document.activeElement);
+    if (w && w.dccTaille) { w.dccTaille.disconnect(); w.dccTaille = null; }
     if (w) w.remove();
     delete fenetresIm[conv];
     // Le focus était dans la fenêtre : il passe à la fenêtre du Courrier de devant, sinon revient où tu étais (lot 101)
@@ -7960,12 +8064,25 @@
     if (actualiserAuRetour) { actualiserAuRetour = false; actualiserImOuvertes(); }
     Object.keys(fenetresIm).forEach(function (c) { if (c !== "nouveau") planifierIm(c); });
   });
-  function actualiserImOuvertes() {
+  function actualiserImOuvertes(connues) {
     if (!fenetresIm) return;
     // Onglet en arrière-plan : rien n'est rechargé ni marqué lu avant ton retour (lot 101, M3)
     if (document.hidden) { actualiserAuRetour = true; return; }
     var ouvertes = Object.keys(fenetresIm).filter(function (c) { return c !== "nouveau" && !etatConv(c).envoi; });
-    var marquees = ouvertes.filter(function (c) { var li = document.getElementById("message_" + c); return li && li.classList.contains("new"); });
+    // Lot 125, A1 : le jeu a dit quelles conversations ont reçu un message ; seules celles-là, si elles sont ouvertes, sont
+    // rechargées, même quand la liste affiche un autre dossier ; les autres ne bougent pas
+    var marquees = connues && connues.length ? ouvertes.filter(function (c) { return connues.indexOf(c) >= 0; })
+      : ouvertes.filter(function (c) { var li = document.getElementById("message_" + c); return li && li.classList.contains("new"); });
+    if (connues && connues.length) {
+      marquees.forEach(function (c) {
+        var e = etatConv(c), bx = boiteConv(c);
+        if (e.vue === "jeu" || (bx && bx.contains(document.activeElement))) { e.peutEtre = true; planifierIm(c); return; }
+        if (Date.now() - (e.actualise || 0) < 3000) return;
+        e.actualise = Date.now();
+        rouvrirConv(c);
+      });
+      return;
+    }
     // La liste marque une autre conversation : le message est ailleurs, aucune ouverte n'est rechargée (revue du 27/10,
     // n° 8). Sans aucune marque visible (autre dossier affiché), rien n'est rechargé non plus : chaque conversation ouverte
     // propose « Du nouveau · Actualiser » (lot 101, M2). Jamais celle que tu lis dans la fenêtre du jeu, ni celle où tu
@@ -8032,7 +8149,7 @@
     rIn.placeholder = "Chercher dans les messages chargés";
     rIn.setAttribute("aria-label", "Chercher dans la conversation");
     rPrec.type = rSuiv.type = rFin.type = "button";
-    rPrec.title = "Précédent (Maj Entrée)"; rSuiv.title = "Suivant (Entrée)"; rFin.title = "Fermer la recherche (Échap)";
+    rPrec.title = "Précédent (Maj+Entrée)"; rSuiv.title = "Suivant (Entrée)"; rFin.title = "Fermer la recherche (Échap)";
     rPrec.setAttribute("aria-label", "Précédent"); rSuiv.setAttribute("aria-label", "Suivant"); rFin.setAttribute("aria-label", "Fermer la recherche");
     var bouge = function (d) { var e = etatConv(conv); e.rechI = (e.rechI || 0) + d; appliquerRechercheIm(conv, true); };
     rIn.addEventListener("input", function () { etatConv(conv).rechI = 0; appliquerRechercheIm(conv, true); });
@@ -8042,7 +8159,7 @@
     rFin.addEventListener("click", function () { basculerRechercheIm(conv); });
     rech.append(rIn, el("span", "dcc-im-rech-compte"), rPrec, rSuiv, rFin);
     var membres = creerMembresIm(conv);
-    var nonLu = k(el("button", null, "Marquer non lu"), "menu"), suppr = k(el("button", null, "Supprimer la conversation"), "menu danger"), archiver = k(el("button", "dcc-im-archiver"), "menu"), tout = k(el("button", "dcc-im-tout"), "menu");
+    var nonLu = k(el("button", null, "Marquer non lue"), "menu"), suppr = k(el("button", null, "Supprimer la conversation"), "menu danger"), archiver = k(el("button", "dcc-im-archiver"), "menu"), tout = k(el("button", "dcc-im-tout"), "menu");
     tout.addEventListener("click", function () {
       var b = boiteConv(conv), l = b ? manquantsIm(b, conv) : [];
       if (!l.length) return;
@@ -8121,7 +8238,7 @@
     ta.value = brouillons[conv] ? separerEntete(ta, brouillons[conv].texte) : "";
     ta.addEventListener("input", function () { noterSaisie(conv); });
     ta.addEventListener("keydown", function (e) { if (toucheEnvoiIm(e)) { e.preventDefault(); envoyerIm(conv); } });
-    envoyer.title = reglages.entreeLigne ? "Envoyer (Ctrl Entrée)" : "Envoyer (Entrée)";
+    envoyer.title = reglages.entreeLigne ? "Envoyer (Ctrl+Entrée)" : "Envoyer (Entrée)";
     envoyer.setAttribute("aria-label", "Envoyer");
     envoyer.appendChild(icone(ICONES.envoyer));
     envoyer.addEventListener("click", function () { envoyerIm(conv); });
@@ -8166,7 +8283,7 @@
           e.preventDefault(); pan.hidden = true;
           if (pan.classList.contains("dcc-im-membres")) { partBt.setAttribute("aria-expanded", "false"); partBt.focus(); } else plus.focus();
         }
-        else if (!e.defaultPrevented && !(e.target.closest && e.target.closest(".dcc-im-recherche, .dcc-gestion-entetes"))) { e.preventDefault(); fermerIm(conv, true); }
+        else if (!e.defaultPrevented && !(e.target.closest && e.target.closest(".dcc-im-recherche, .dcc-gestion-entetes"))) { e.preventDefault(); if (echapFerme(w)) fermerIm(conv, true); }
       }
       e.stopPropagation();
     }); });
@@ -8217,7 +8334,9 @@
     tete.addEventListener("dblclick", function (e) { if (!e.target.closest("button")) w.classList.toggle("dcc-replie"); });
     if (typeof ResizeObserver === "function") {
       var att = null, vuUneFois = false;
-      new ResizeObserver(function () { if (!vuUneFois) { vuUneFois = true; return; } clearTimeout(att); att = setTimeout(function () { if (w.isConnected) retenirFenetreIm(w); }, 300); }).observe(w);
+      // Gardé sur la fenêtre pour être coupé à sa fermeture (lot 125, K17)
+      w.dccTaille = new ResizeObserver(function () { if (!vuUneFois) { vuUneFois = true; return; } clearTimeout(att); att = setTimeout(function () { if (w.isConnected) retenirFenetreIm(w); }, 300); });
+      w.dccTaille.observe(w);
     }
   }
   // Les outils RP (entête, action rapide, modèle) derrière ✎ : repliés par défaut, ton choix est retenu (le même pour une
@@ -8282,7 +8401,7 @@
     ta.setAttribute("data-dcc-entete", derniereEnteteCle());
     ta.value = separerEntete(ta, (gTexte && gTexte.value) || (b && b.texte) || "");
     envoyer.type = "button";
-    envoyer.title = reglages.entreeLigne ? "Envoyer (Ctrl Entrée)" : "Envoyer (Entrée)";
+    envoyer.title = reglages.entreeLigne ? "Envoyer (Ctrl+Entrée)" : "Envoyer (Entrée)";
     envoyer.setAttribute("aria-label", "Envoyer");
     envoyer.appendChild(icone(ICONES.envoyer));
     ligne.append(boutonOutilsRp(saisie), champIm(ta), envoyer);
@@ -8332,7 +8451,7 @@
         var ouverte = fenetresIm.nouveau === w;
         if (e2 && e2.textContent.trim()) {
           envoi = null; envoyer.disabled = false; dire(e2.textContent.trim().slice(0, 160)); ecrireSiChange(pied.querySelector(".dcc-im-brouillon"), "");
-          if (!ouverte) { annoncerPupitre("Nouvelle conversation non envoyée : " + e2.textContent.trim().slice(0, 80) + " (brouillon gardé)"); fermerIm("nouveau", true); }
+          if (!ouverte) { annoncerPupitre("Nouveau message non envoyé : " + e2.textContent.trim().slice(0, 80) + " (brouillon gardé)"); fermerIm("nouveau", true); }
           return;
         }
         // Le jeu confirme dans sa fenêtre (« Message envoyé avec succès », son contenu masqué) sans la fermer ni vider le
@@ -8348,7 +8467,7 @@
         }
         if (Date.now() - envoi > ENVOI_MS) {
           envoi = null; envoyer.disabled = false; dire("Pas de réponse du jeu : regarde dans « Messages envoyés » s'il est parti avant de renvoyer."); ecrireSiChange(pied.querySelector(".dcc-im-brouillon"), "");
-          if (!ouverte) { annoncerPupitre("Nouvelle conversation : pas de réponse du jeu, regarde dans « Messages envoyés » (brouillon gardé)"); fermerIm("nouveau", true); }
+          if (!ouverte) { annoncerPupitre("Nouveau message : pas de réponse du jeu, regarde dans « Messages envoyés » (brouillon gardé)"); fermerIm("nouveau", true); }
           return;
         }
         setTimeout(voir, 250);
@@ -8358,7 +8477,13 @@
     envoyer.addEventListener("click", partir);
     ["keydown", "keyup", "keypress"].forEach(function (t) { w.addEventListener(t, function (e) {
       // Échap ferme, comme la croix (le brouillon est gardé) (lot 101)
-      if (e.key === "Escape" && t === "keydown" && !e.defaultPrevented && !(e.target.closest && e.target.closest(".dcc-gestion-entetes"))) { e.preventDefault(); fermerNouveau(); }
+      if (e.key === "Escape" && t === "keydown" && !e.defaultPrevented && !(e.target.closest && e.target.closest(".dcc-gestion-entetes"))) {
+        e.preventDefault();
+        // Un nom en cours dans « À » : Échap l'efface d'abord (lot 125, K5)
+        var sa = w.querySelector(".dcc-im-a-saisie");
+        if (sa && sa.value) sa.value = "";
+        else if (echapFerme(w)) fermerNouveau();
+      }
       e.stopPropagation();
     }); });
     w.tabIndex = -1;
@@ -8393,7 +8518,9 @@
     var q = r.hidden ? "" : sansAccents(r.querySelector("input").value.trim()), e = etatConv(conv), f = w.querySelector(".dcc-im-fil");
     var bulles = Array.prototype.slice.call(f.querySelectorAll(".dcc-im-msg[data-id]")), trouves = [];
     bulles.forEach(function (b) {
-      var ok = !!q && sansAccents((b.querySelector(".dcc-im-corps") || {}).textContent || "").indexOf(q) >= 0;
+      // La signature repliée compte aussi (lot 125, K11 : un mot trouvé dans une signature par la recherche de la liste
+      // ouvrait la conversation sur « aucun »)
+      var ok = !!q && sansAccents(((b.querySelector(".dcc-im-corps") || {}).textContent || "") + " " + ((b.querySelector(".dcc-im-sigt") || {}).textContent || "")).indexOf(q) >= 0;
       if (ok) trouves.push(b);
       if (b.classList.contains("dcc-im-trouve") !== ok) b.classList.toggle("dcc-im-trouve", ok);
       var pale = !!q && !ok;
@@ -8510,6 +8637,8 @@
     appliquerThemeIm(conv);
     if (titre && /^\d+$/.test(conv) && titresConv[conv] !== sujet) {
       titresConv[conv] = sujet.slice(0, 200);
+      // Un autre onglet a pu en garder d'autres entre-temps : on les reprend avant d'écrire (lot 125, K16)
+      fusionnerStocke(magTitres, titresConv, function (v) { return typeof v === "string" ? v.slice(0, 200) : null; });
       var clesT = Object.keys(titresConv);
       // Au-delà de 300, la plus ancienne conversation part, jamais celle-ci (revue du 27/10/2026, n° 18)
       if (clesT.length > 300) delete titresConv[clesT[0] === String(conv) ? clesT[1] : clesT[0]];
@@ -8526,7 +8655,7 @@
     if (avs.getAttribute("data-sig") !== sigAv) {
       avs.setAttribute("data-sig", sigAv); avs.textContent = "";
       if (autres[0]) avs.appendChild(avatar(autres[0], boite));
-      if (grp) avs.appendChild(el("span", "dcc-im-av-plus", "+" + autres.length));
+      if (grp) { var pl = el("span", "dcc-im-av-plus", "+" + (autres.length - 1)); pl.title = (autres.length + 1) + " participants, toi compris"; avs.appendChild(pl); } // (lot 125, K13 : « +6 » à côté d'un avatar se lisait 7)
     }
     noterDernierMot(conv, msgs, autres);
     var mRg = im.querySelector(".dcc-im-m-ranger"), deux = fenetresImDepliees().length >= 2;
@@ -8646,7 +8775,16 @@
     var r = Notification.requestPermission();
     if (r && typeof r.then === "function") r.then(activer);
   }
-  function alerteCourrier(n, nonLues) {
+  function alerteCourrier(n, nonLues, arrivees) {
+    // Lot 125, M3 : la conversation que le jeu a dite (A1), la plus récente, et son dossier s'il n'est pas celui affiché
+    var a = arrivees && arrivees.length ? arrivees[arrivees.length - 1] : null;
+    if (a) {
+      var la = document.getElementById("message_" + a.conv), ta = la && la.querySelector(".message_titre");
+      var titre = titresConv[a.conv] || (ta && ta.textContent.trim()) || "(sans titre)", auteur = la ? ((la.querySelector(".message_auteur") || {}).textContent || "").trim() : "";
+      var dos = a.dossier && a.dossier !== dossierCourant() ? dossiersTous().filter(function (d) { return d.id === a.dossier; })[0] : null;
+      notifierBureau("Courrier : " + n + " non lu" + (n > 1 ? "s" : ""), titre + (auteur ? " — " + auteur : "") + (dos ? " (dans " + majuscule(dos.nom) + ")" : ""), "dcc-courrier");
+      return;
+    }
     var li = nonLues.filter(function (x) { return !sourdines[x.id.slice(8)]; })[0];
     var corps = li ? (((li.querySelector(".message_titre") || {}).textContent || "").trim() + " — " + ((li.querySelector(".message_auteur") || {}).textContent || "").trim()).replace(/^ — | — $/g, "") : "";
     notifierBureau("Courrier : " + n + " non lu" + (n > 1 ? "s" : ""), corps, "dcc-courrier");
@@ -11266,7 +11404,7 @@
   // Seulement quand la barre se voit (hors combat) ; sinon l'action en cours reste dans la fiche.
   var outilsBarre = null, miniMoi = null, magVisite = magasin("visiteMaquette"), visite = null;
   var GESTES_VISITE = [["Ctrl K", "la palette : tout DC Confort, et « aller à » un bouton du jeu"], ["Ctrl + point", "Focus : la carte et le chat seuls"],
-    ["Alt + flèches", "déplacer une fenêtre du jeu ; glissée au bord droit, elle s'y range"], ["Courrier", "chaque conversation dans sa fenêtre : Ctrl Entrée envoie, la loupe cherche"],
+    ["Alt + flèches", "déplacer une fenêtre du jeu ; glissée au bord droit, elle s'y range"], ["Courrier", "chaque conversation dans sa fenêtre : Ctrl+Entrée envoie, la loupe cherche"],
     ["Réglages", "Apparence : la Maquette, ou le jeu d'origine"]];
   function majVisite(forcer) {
     var voulue = racine.classList.contains("dcc-maquette") && (forcer || magVisite.lire() !== true);
@@ -12196,7 +12334,7 @@
     // Aller à une conversation de la liste (lot 92, le sélecteur rapide de Discord), par son titre entier quand il est connu
     Array.prototype.forEach.call(document.querySelectorAll("#liste_messages li.message[id^='message_']"), function (li) {
       var id = li.id.slice(8), t = titresConv[id] || ((li.querySelector(".message_titre") || {}).textContent || "").trim(), a = ((li.querySelector(".message_auteur") || {}).textContent || "").trim();
-      if (t) f("Conversation", t, a, function () { ouvrirConv(id); });
+      f("Conversation", t || "(sans titre)", a, function () { ouvrirConv(id); });
     });
     Array.prototype.forEach.call(document.querySelectorAll("#zone_dataBox > .dataBox"), function (b) { var t = b.querySelector(".head .title"); if (t && t.textContent.trim()) aller(t.textContent.trim().slice(0, 50), b, "fenêtre ouverte"); });
     return l;
@@ -12319,7 +12457,7 @@
   var TOUCHES = [["Ctrl K", "Palette : chercher une action, une fenêtre, un réglage"], ["Alt Maj C", "Réglages de DC Confort"],
     ["Alt ← ↑ → ↓", "Déplacer la fenêtre active de 10 px (Maj : 1 px)"], ["Double-clic sur un en-tête", "Réduire la fenêtre (barre « Réduites » en bas)"],
     ["Échap", "Fermer la palette ou le panneau, annuler un glisser de fenêtre"], ["/ puis un nom, Tab", "Dans le chat : insérer un de tes modèles"],
-    ["*sourit*", "Dans une réplique : devient une action"], ["Ctrl Entrée", "Valider un import de réglages"]];
+    ["*sourit*", "Dans une réplique : devient une action"], ["Ctrl+Entrée", "Valider un import de réglages"]];
   function ouvrirTouches() {
     if (ficheTouches && ficheTouches.isConnected) { ficheTouches.remove(); ficheTouches = null; return; }
     var a = document.activeElement, retour = !a || a === document.body || a === palHote ? palRetour : a;
@@ -12422,10 +12560,15 @@
   // La sauvegarde complète (proposition 4, 26/10/2026) : réglages, couleurs, narration, modèles, et le Courrier (fil gardé,
   // épingles, sourdines, épinglées, archivées, dernière lecture, brouillons, place de la fenêtre, alertes). Tout reste à toi :
   // le texte va dans ton presse-papiers, rien n'est envoyé.
+  // Lot 125, K4 (bug G1 de l'audit du 05/11) : aussi tes entêtes RP et ta signature, la dernière entête choisie, les outils
+  // RP ouverts, l'apparence, le titre entier, le dossier et le dernier mot de chaque conversation
   function exporterReglages() {
+    var ent = magEntetes.lire(), sig = magSignature.lire(), der = magDerniereEntete.lire();
     copierTexte(JSON.stringify({ app: "DC Confort", version: VERSION, date: new Date().toISOString(), reglages: reglages, couleurs: couleursNoms,
       narration: { propres: narration.propres, actives: narration.actives }, modeles: modelesTexte,
-      courrier: { fil: fil, epingles: epingles, sourdines: sourdines, epinglees: convEpinglees, archivees: convArchivees, vus: pairesVus(), brouillons: brouillons, fenetre: placeCourrier, alertes: alertesBureau } }), "Sauvegarde (réglages et Courrier)");
+      courrier: { fil: fil, epingles: epingles, sourdines: sourdines, epinglees: convEpinglees, archivees: convArchivees, vus: pairesVus(), brouillons: brouillons, fenetre: placeCourrier, alertes: alertesBureau,
+        entetes: Array.isArray(ent) ? ent : null, signature: typeof sig === "string" ? sig : "", derniereEntete: typeof der === "string" ? der : "", outilsRp: magOutilsRp.lire() === true,
+        themes: themesConv, titres: titresConv, dossiers: dossiersConvMem, dernierMot: dernierMot } }), "Sauvegarde (réglages et Courrier)");
   }
   function importerCourrier(c) {
     if (!c || typeof c !== "object") return;
@@ -12438,6 +12581,14 @@
     if (c.brouillons && typeof c.brouillons === "object") { chargerBrouillons(c.brouillons); magBrouillons.ecrire(brouillons); }
     if (c.fenetre && typeof c.fenetre === "object" && ["x", "y", "w", "h"].every(function (k) { return Number.isFinite(c.fenetre[k]); })) { placeCourrier = { x: c.fenetre.x, y: c.fenetre.y, w: c.fenetre.w, h: c.fenetre.h }; magCourrierFen.ecrire(placeCourrier); }
     if (typeof c.alertes === "boolean") { alertesBureau = c.alertes && typeof Notification === "function" && Notification.permission === "granted"; magAlertes.ecrire(alertesBureau); }
+    if (Array.isArray(c.entetes)) { lireEntetes(c.entetes); magEntetes.ecrire(ENTETES_RP.map(function (e) { return e.slice(); })); }
+    if (typeof c.signature === "string") magSignature.ecrire(c.signature.trim().slice(0, 300));
+    if (typeof c.derniereEntete === "string") magDerniereEntete.ecrire(cleExiste(c.derniereEntete) ? c.derniereEntete : "");
+    if (typeof c.outilsRp === "boolean") magOutilsRp.ecrire(c.outilsRp);
+    if (c.themes && typeof c.themes === "object") { chargerThemes(c.themes); magThemes.ecrire(themesConv); }
+    if (c.titres && typeof c.titres === "object") { chargerTitres(c.titres); magTitres.ecrire(titresConv); }
+    if (c.dossiers && typeof c.dossiers === "object") { chargerDossiersConv(c.dossiers); magDossiersConv.ecrire(dossiersConvMem); }
+    if (c.dernierMot && typeof c.dernierMot === "object") { var dm = lireDernierMot(c.dernierMot); viderObjet(dernierMot); Object.keys(dm).forEach(function (k) { dernierMot[k] = dm[k]; }); magDernierMot.ecrire(dernierMot); }
     Object.keys(etatsConv).forEach(function (k) { etatsConv[k].sig = ""; });
     etape("messagerie", majMessagerie);
   }
@@ -13081,7 +13232,7 @@
       corps.appendChild(ligne("Grand texte du chat", grand));
       corps.appendChild(ligne("Aides du chat", interrupteur("aidesChat", ["Oui", "Non"])));
       var le = ligne("Entrée dans le Courrier", interrupteur("entreeLigne", ["Va à la ligne", "Envoie"]));
-      le.firstChild.appendChild(el("small", null, reglages.entreeLigne ? "Ctrl Entrée envoie" : "Maj Entrée va à la ligne"));
+      le.firstChild.appendChild(el("small", null, reglages.entreeLigne ? "Ctrl+Entrée envoie" : "Maj+Entrée va à la ligne"));
       corps.appendChild(le);
       var ls = ligne("Sons", interrupteur("sonsChat", ["Oui", "Non"]));
       ls.firstChild.appendChild(el("small", null, "Chat, messages, notifications, combat (début, ton tour), munitions basses"));
