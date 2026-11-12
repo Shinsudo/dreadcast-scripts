@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DC Confort
 // @namespace    deck.local
-// @version      0.124.4
+// @version      0.124.5
 // @updateURL    https://raw.githubusercontent.com/Shinsudo/dreadcast-scripts/main/dc-confort.meta.js
 // @downloadURL  https://raw.githubusercontent.com/Shinsudo/dreadcast-scripts/main/dc-confort.user.js
 // @description  Rend l'écran de Dreadcast et son forum plus lisibles. Le Courrier, façon DDM V2, lit les messages auprès du jeu et envoie tes réponses, à ta demande seulement.
@@ -45,7 +45,7 @@
    Repères du jeu : DOM-JEU.md (relevés du 23 et du 24/10/2026). */
 (function () {
   "use strict";
-  var VERSION = "0.124.4";
+  var VERSION = "0.124.5";
   var racine = document.documentElement;
   // Les éléments que DC Confort crée : un changement fait dedans ne relance pas l'observateur (audit de phase 6, n° 14)
   var nos = typeof WeakSet === "function" ? new WeakSet() : null;
@@ -3202,6 +3202,7 @@
     ".dcc-im-puce-pt { display: block; flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--dcc-tr, var(--dcc-t3)); }",
     W124 + " .dcc-im-raccourci { flex: none; align-self: center; color: var(--dcc-t3); font: 11.5px var(--dcc-chiffres); white-space: nowrap; }",
     W124 + " .dcc-im-emenu:not([hidden]) { position: absolute; left: 10px; bottom: calc(100% + 4px); z-index: 8; display: flex; flex-direction: column; width: 250px; max-height: 340px; overflow-y: auto; " + MENU124 + " }",
+    W124 + " .dcc-im-emenu.dcc-im-emenu-bas:not([hidden]) { bottom: auto; }",
     W124 + " .dcc-im-emenu > button { display: flex !important; align-items: center; gap: 8px; width: 100%; text-align: left; }",
     W124 + " .dcc-im-emenu > button > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }",
     W124 + " .dcc-im-emenu small { margin-left: auto; color: var(--dcc-t3); font-size: 11px; }",
@@ -5872,25 +5873,58 @@
   // La recherche dit ce qu'elle couvre : les conversations chargées et les messages lus ici. « Chercher plus loin » demande
   // au jeu la suite du dossier, page après page (sa fonction loadFolderContent, celle de son défilement), jusqu'à la fin
   // ou « Arrêter » ; jamais sans ton clic, 40 pages au plus
-  var loin = { actif: false, pages: 0, fini: false, dossier: "", attente: 0 };
+  var loin = { actif: false, pages: 0, fini: false, dossier: "", attente: 0, budget: 40, refus: 0 };
   function nbLignesConv() { return document.querySelectorAll("#liste_messages li.message[id^='message_']").length; }
   function arreterPlusLoin() { loin.actif = false; clearTimeout(loin.attente); var l = document.getElementById("liste_messages"); if (l) porteeListe124(l); }
+  // Les conversations d'une réponse du jeu (son XML : folder_content > li) ; null si la réponse ne se lit pas
+  function lignesReponse(r) {
+    if (r && typeof r.getElementsByTagName === "function") return r.getElementsByTagName("li").length;
+    if (typeof r === "string") return (r.match(/<li[\s>]/gi) || []).length;
+    return null;
+  }
   function chercherPlusLoin() {
     var m = jeuMessagerie();
     if (!m || typeof m.loadFolderContent !== "function") { annoncerPupitre("Le jeu ne donne pas la suite de la liste ici"); return; }
-    loin.actif = true; loin.dossier = dossierCourant();
+    // « Continuer » après 40 pages : 40 de plus (lot 125, K7 : il ne faisait plus rien)
+    loin.actif = true; loin.dossier = dossierCourant(); loin.budget = loin.pages + 40; loin.refus = 0;
+    var finir = function (l) { loin.actif = false; loin.fini = true; porteeListe124(l); };
     var page = function () {
       var l = document.getElementById("liste_messages");
       if (!loin.actif || !l || dossierCourant() !== loin.dossier) { loin.actif = false; return; }
-      if (loin.pages >= 40) { arreterPlusLoin(); return; }
-      var avant = nbLignesConv(), t0 = Date.now();
-      try { m.loadFolderContent(); } catch (x) { arreterPlusLoin(); return; }
+      if (loin.pages >= loin.budget) { arreterPlusLoin(); return; }
+      var avant = nbLignesConv(), t0 = Date.now(), vides = 0, r;
+      try { r = m.loadFolderContent(); } catch (x) { arreterPlusLoin(); return; }
       porteeListe124(l);
+      // Lot 125, K1 : la réponse du jeu dit s'il reste des conversations (sa fonction rend la requête). Un message qui arrive
+      // pendant ce temps fait recharger au jeu la première page du dossier (messageReceived → openFolder) : le nombre de
+      // lignes retombe, ce n'est pas la fin. Seule une réponse vide l'est.
+      if (r && typeof r.then === "function") {
+        r.then(function (rep) {
+          if (!loin.actif) return;
+          loin.refus = 0;
+          var n = lignesReponse(rep);
+          if (n === 0 || (n === null && nbLignesConv() === avant)) { finir(l); return; }
+          loin.pages++; porteeListe124(l); loin.attente = setTimeout(page, 400);
+        }, function () {
+          // Le jeu refuse pendant qu'il charge déjà (son défilement) : on redemande, cinq fois au plus
+          if (!loin.actif) return;
+          if (++loin.refus > 5) { arreterPlusLoin(); annoncerPupitre("Le jeu ne donne pas la suite pour l'instant : réessaie dans un moment"); return; }
+          loin.attente = setTimeout(page, 1200);
+        });
+        return;
+      }
       (function attendre() {
         if (!loin.actif) return;
-        if (nbLignesConv() > avant) { loin.pages++; porteeListe124(l); loin.attente = setTimeout(page, 500); return; }
-        // Rien de plus en 4 s : c'est la fin du dossier
-        if (Date.now() - t0 > 4000) { loin.actif = false; loin.fini = true; porteeListe124(l); return; }
+        var n = nbLignesConv();
+        if (n > avant) { loin.pages++; porteeListe124(l); loin.attente = setTimeout(page, 500); return; }
+        // La liste a été refaite par le jeu (un message est arrivé) : on reprend depuis là, sans conclure
+        if (n < avant) { loin.attente = setTimeout(page, 500); return; }
+        // Rien de plus en 4 s : une seconde demande, puis c'est la fin du dossier
+        if (Date.now() - t0 > 4000) {
+          if (++vides >= 2) { finir(l); return; }
+          t0 = Date.now();
+          try { m.loadFolderContent(); } catch (x) { arreterPlusLoin(); return; }
+        }
         loin.attente = setTimeout(attendre, 250);
       })();
     };
@@ -6075,19 +6109,29 @@
       });
     }
   }
+  // Ce que la recherche lit d'une ligne : le titre (entier s'il est connu), l'auteur, et le texte de l'aperçu sans ses
+  // marques (« Toi : », « Brouillon : », « à toi », les initiales du second avatar) (lot 125, K6 : chercher « toi » ou
+  // « brouillon » remontait des conversations sans rapport)
+  function texteRechercheLigne(li) {
+    var t = li.querySelector(".message_titre"), a = li.querySelector(".message_auteur"), ap = li.querySelector(":scope > .dcc-apercu");
+    var apTxt = ap ? Array.prototype.filter.call(ap.childNodes, function (n) { return n.nodeType === 3; }).map(function (n) { return n.nodeValue; }).join("") : "";
+    return [titresConv[li.id.slice(8)] || (t && t.getAttribute("data-dcc-titre")) || (t ? t.textContent : ""), a ? a.textContent : "", apTxt].join(" ");
+  }
   function filtrerMessages(liste) {
     var q = sansAccents(liste.querySelector(":scope > .dcc-filtre").value.trim()), vus = 0, deNom = (q.match(/^de\s*:\s*(.+)$/) || [])[1];
     var lis = liste.querySelectorAll("li.message");
     Array.prototype.forEach.call(lis, function (li) {
       var id = li.id.slice(8);
       // « de:Nom » : l'auteur seulement ; une archivée ne revient que pour un non-lu hors sourdine
-      var texteOk = !q || (deNom ? sansAccents(((li.querySelector(".message_auteur") || {}).textContent || "")).indexOf(deNom.trim()) >= 0 : sansAccents(li.textContent).indexOf(q) >= 0);
+      var texteOk = !q || (deNom ? sansAccents(((li.querySelector(".message_auteur") || {}).textContent || "")).indexOf(deNom.trim()) >= 0 : sansAccents(texteRechercheLigne(li)).indexOf(q) >= 0);
       var arch = !!convArchivees[id], revient = arch && li.classList.contains("new") && !sourdines[id];
       var garde = texteOk && (filtreConv !== "nonlues" || li.classList.contains("new")) && (filtreConv !== "epinglees" || !!convEpinglees[id]) && (filtreConv === "archivees" ? arch : !arch || revient);
       if (li.classList.contains("dcc-archivee") !== arch) li.classList.toggle("dcc-archivee", arch);
       if (li.classList.contains("dcc-masque") === garde) li.classList.toggle("dcc-masque", !garde);
       if (garde) vus++;
     });
+    // Champ vidé : « Chercher plus loin » s'arrête (lot 125, K7 : il continuait sans bouton)
+    if (!q && loin.actif) arreterPlusLoin();
     var vide = liste.querySelector(":scope > .dcc-vide");
     if (vide) vide.hidden = !((q || filtreConv !== "toutes" || Object.keys(convArchivees).length) && lis.length && !vus);
     majResultatsGlobaux(liste, q && !deNom && q.length >= 3 ? q : "", liste.querySelector(":scope > .dcc-filtre").value.trim());
@@ -7280,17 +7324,28 @@
       var t = "Entête : " + nom + " (action rapide, modèle, signature dans ce menu)";
       if (puce.title !== t) { puce.title = t; puce.setAttribute("aria-label", t); }
     };
-    // Le menu s'ouvre vers le haut : dans une fenêtre basse, le bord de la fenêtre (overflow) en coupait le haut
-    // (« Sans entête » et les entêtes cachés). On lui donne la place réelle au-dessus de la saisie, il défile dedans
+    // Le menu s'ouvre vers le haut : dans une fenêtre basse, ou dans « Nouveau message » (saisie haut placée, sous
+    // le destinataire et le sujet), le bord de la fenêtre (overflow) en coupait le haut (« Sans entête » et les
+    // entêtes cachés). Il prend la place réelle : vers le haut s'il y tient, sinon du côté le plus grand (vers le bas,
+    // sur le texte, sous la puce), et défile dedans
     var ajusterHauteur = function () {
-      var haut = 0, p = saisie.parentElement;
+      var haut = 0, basMax = window.innerHeight, p = saisie.parentElement;
       while (p && p !== document.body && p !== document.documentElement) {
         var cs = getComputedStyle(p);
-        if (cs.overflowY !== "visible" || cs.overflowX !== "visible") { haut = Math.max(haut, p.getBoundingClientRect().top); }
+        if (cs.overflowY !== "visible" || cs.overflowX !== "visible") { var rp = p.getBoundingClientRect(); haut = Math.max(haut, rp.top); basMax = Math.min(basMax, rp.bottom); }
         p = p.parentElement;
       }
-      var place = Math.floor(saisie.getBoundingClientRect().top - 4 - haut - 6);
-      menu.style.maxHeight = Math.max(120, Math.min(340, place)) + "px";
+      var rs = saisie.getBoundingClientRect(), rpu = puce.getBoundingClientRect();
+      var dessus = Math.floor(rs.top - 4 - haut - 6), dessous = Math.floor(basMax - rpu.bottom - 4 - 6);
+      menu.classList.remove("dcc-im-emenu-bas");
+      menu.style.top = "";
+      menu.style.maxHeight = "none";
+      var besoin = Math.min(340, menu.scrollHeight);
+      if (besoin > dessus && dessous > dessus) {
+        menu.classList.add("dcc-im-emenu-bas");
+        menu.style.top = Math.round(rpu.bottom - rs.top + 4) + "px";
+        menu.style.maxHeight = Math.max(80, Math.min(340, dessous)) + "px";
+      } else menu.style.maxHeight = Math.max(80, Math.min(340, dessus)) + "px";
     };
     var fermer = function (rendre) { if (menu.hidden) return; menu.hidden = true; puce.setAttribute("aria-expanded", "false"); if (rendre && puce.isConnected) puce.focus(); };
     menu.dccFermer = fermer;
