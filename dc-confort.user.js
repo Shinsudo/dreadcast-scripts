@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DC Confort
 // @namespace    deck.local
-// @version      0.125.0
+// @version      0.125.1
 // @updateURL    https://raw.githubusercontent.com/Shinsudo/dreadcast-scripts/main/dc-confort.meta.js
 // @downloadURL  https://raw.githubusercontent.com/Shinsudo/dreadcast-scripts/main/dc-confort.user.js
 // @description  Rend l'écran de Dreadcast et son forum plus lisibles. Le Courrier, façon DDM V2, lit les messages auprès du jeu et envoie tes réponses, à ta demande seulement.
@@ -45,7 +45,7 @@
    Repères du jeu : DOM-JEU.md (relevés du 23 et du 24/10/2026). */
 (function () {
   "use strict";
-  var VERSION = "0.125.0";
+  var VERSION = "0.125.1";
   var racine = document.documentElement;
   // Les éléments que DC Confort crée : un changement fait dedans ne relance pas l'observateur (audit de phase 6, n° 14)
   var nos = typeof WeakSet === "function" ? new WeakSet() : null;
@@ -3203,6 +3203,8 @@
     W124 + " .dcc-im-champ-barre > .dcc-im-raccourci { margin-left: auto; }",
     W124 + " .dcc-im-champ textarea { flex: 0 0 auto !important; width: 100% !important; min-width: 0; margin: 0 !important; padding: 2px 3px 7px !important; border: 0 !important; border-radius: 0 !important; background: transparent !important; box-shadow: none !important; outline: none !important; }",
     W124 + ".dcc-nouveau .dcc-im-champ { align-self: stretch; } " + W124 + ".dcc-nouveau .dcc-im-ligne { align-items: stretch; }",
+    // 12/11/2026 : dans « Nouveau message », le texte remplit le cadre (il restait sur trois lignes, en haut d'un cadre vide)
+    W124 + ".dcc-nouveau .dcc-im-champ textarea { flex: 1 1 0 !important; height: auto !important; min-height: 80px; }",
     W124 + " .dcc-im-puce-e { display: inline-flex !important; align-items: center; gap: 6px; flex: 0 1 auto; min-width: 0; height: 24px !important; max-width: 220px; margin: 0 !important; padding: 0 7px !important; border-radius: 8px !important;",
     "  background: rgb(var(--dcc-filet-rvb) / .12) !important; color: var(--dcc-t1) !important; font: 12.5px 'Segoe UI', Arial, sans-serif !important; white-space: nowrap; text-transform: none !important; }",
     W124 + " .dcc-im-puce-e:hover { background: rgb(var(--dcc-filet-rvb) / .2) !important; }",
