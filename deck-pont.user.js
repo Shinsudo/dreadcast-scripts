@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DECK 2 — pont
 // @namespace    deck2.local
-// @version      1.4.1
+// @version      1.5.0
 // @updateURL    https://raw.githubusercontent.com/Shinsudo/dreadcast-scripts/main/deck-pont.meta.js
 // @downloadURL  https://raw.githubusercontent.com/Shinsudo/dreadcast-scripts/main/deck-pont.user.js
 // @description  Lit ce que TU ouvres dans Dreadcast et le transmet à DECK 2 ; panneau « Aujourd’hui » et recherche dans DECK. Aucun clic, aucun envoi, aucune requête.
@@ -27,7 +27,7 @@
    6 déclencheurs · 7 passerelle DC Confort · 8 rappels et scène · 9 panneau · 10 démarrage. */
 (function () {
   "use strict";
-  var VERSION = "1.4.1";
+  var VERSION = "1.5.0";
   var W = typeof unsafeWindow !== "undefined" ? unsafeWindow : window;
 
   /* ================= 1. Stockage GM (clés d2.*) ================= */
@@ -620,7 +620,9 @@
       // v1.1.0 : la santé du Secteur (bandeau de DC Confort) ; la fiche DECK d'un nom, demandée par DC Confort
       "secteur": { couverture: "entier", jour: "chaine:10", conso: "entier", alerte: "chaine:140", alertes: "entier", depassements: "entier" },
       "fiche-demande": { nom: "chaine:60" },
-      "fiche": { nom: "chaine:60", trouve: "bool", poste: "chaine:80", employeur: "chaine:60", relation: "chaine:30", dernier: "chaine:10", lieu: "chaine:80" } };
+      "fiche": { nom: "chaine:60", trouve: "bool", poste: "chaine:80", employeur: "chaine:60", relation: "chaine:30", dernier: "chaine:10", lieu: "chaine:80" },
+      // v1.5.0 : un rappel vient de s'afficher ; DC Confort le fait sonner (le pont ne joue aucun son lui-même)
+      "rappel": { titre: "chaine:140" } };
     function valider(s, v) {
       if (typeof s === "string") {
         var p = s.split(":");
@@ -645,7 +647,7 @@
       var m; try { m = JSON.parse(e.detail); } catch (x) { console.warn("DECK 2 › passerelle : JSON invalide", x); return; }
       if (!m || m.v !== PROTOCOLE || m.de !== "confort" || !SCH[m.type]) return; // son propre écho et les inconnus
       var r = valider(SCH[m.type], m.donnees === undefined ? {} : m.donnees); if (!r) return;
-      if (m.type === "bonjour" || m.type === "bonjour-retour") { pair = r.ok; if (m.type === "bonjour") envoyer("bonjour-retour", { version: VERSION, capacites: ["contacts", "taches", "secteur", "fiche"] }); }
+      if (m.type === "bonjour" || m.type === "bonjour-retour") { pair = r.ok; if (m.type === "bonjour") envoyer("bonjour-retour", { version: VERSION, capacites: ["contacts", "taches", "secteur", "fiche", "rappel"] }); }
       (ecoutes[m.type] || []).forEach(function (f) { f(r.ok); });
     });
     document.documentElement.setAttribute("data-dcc-pont", VERSION);
@@ -705,8 +707,10 @@
     var cle = r.id + "@" + r.ms; if (reglages.sonnes.indexOf(cle) > -1 || guideFaits[r.id]) return;
     reglages.sonnes = reglages.sonnes.concat([cle]).slice(-60); sauverReglages();
     if (enScene()) { retenus.push(r); majPastille(); return; } // en scène, le rappel attend
-    banniere = { titre: r.titre, heure: fmtHeure.format(new Date(r.ms)) }; montrerBanniere();
+    banniere = { titre: r.titre, heure: fmtHeure.format(new Date(r.ms)) }; montrerBanniere(); signalerRappel(r.titre);
   }
+  // v1.5.0 : DC Confort fait sonner le rappel, s’il est là (sinon rien : le bandeau suffit)
+  function signalerRappel(titre) { PASS.envoyer("rappel", { titre: propre(titre, 140) }); }
   function scene(minutes) {
     reglages.sceneFin = minutes ? maintenant() + minutes * 60000 : 0; sauverReglages(); planifierScene(); majPastille(); rendre();
   }
@@ -716,7 +720,7 @@
     if (reste > 0) { sceneT = setTimeout(planifierScene, Math.min(reste + 500, 2147483000)); return; }
     if (retenus.length) {
       banniere = { titre: retenus.length + " rappel" + (retenus.length > 1 ? "s" : "") + " pendant la scène : " + retenus.map(function (r) { return r.titre; }).join(" · "), heure: "" };
-      retenus = []; montrerBanniere(); majPastille();
+      retenus = []; montrerBanniere(); majPastille(); signalerRappel(banniere.titre);
     }
   }
 

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DC Confort
 // @namespace    deck.local
-// @version      0.125.2
+// @version      0.126.0
 // @updateURL    https://raw.githubusercontent.com/Shinsudo/dreadcast-scripts/main/dc-confort.meta.js
 // @downloadURL  https://raw.githubusercontent.com/Shinsudo/dreadcast-scripts/main/dc-confort.user.js
 // @description  Rend l'écran de Dreadcast et son forum plus lisibles. Le Courrier, façon DDM V2, lit les messages auprès du jeu et envoie tes réponses, à ta demande seulement.
@@ -45,7 +45,7 @@
    Repères du jeu : DOM-JEU.md (relevés du 23 et du 24/10/2026). */
 (function () {
   "use strict";
-  var VERSION = "0.125.2";
+  var VERSION = "0.126.0";
   var racine = document.documentElement;
   // Les éléments que DC Confort crée : un changement fait dedans ne relance pas l'observateur (audit de phase 6, n° 14)
   var nos = typeof WeakSet === "function" ? new WeakSet() : null;
@@ -82,7 +82,9 @@
     // v2 du pont DECK (04/11/2026) : la santé du Secteur au bandeau, la fiche DECK d'un nom à la demande
     "secteur": { couverture: "entier", jour: "chaine:10", conso: "entier", alerte: "chaine:140", alertes: "entier", depassements: "entier" },
     "fiche-demande": { nom: "chaine:60" },
-    "fiche": { nom: "chaine:60", trouve: "bool", poste: "chaine:80", employeur: "chaine:60", relation: "chaine:30", dernier: "chaine:10", lieu: "chaine:80" }
+    "fiche": { nom: "chaine:60", trouve: "bool", poste: "chaine:80", employeur: "chaine:60", relation: "chaine:30", dernier: "chaine:10", lieu: "chaine:80" },
+    // Lot S-A (13/11/2026) : un rappel de DECK vient de s'afficher dans le pont ; DC Confort le fait sonner
+    "rappel": { titre: "chaine:140" }
   };
 
   function valider(schema, v) {
@@ -176,25 +178,28 @@
    reconnaissable sans regarder l'écran.
    Garde-fous : rien ne sonne avant un premier geste de la joueuse (règle des navigateurs) ; volume par catégorie et
    général ; anti-rafale par catégorie ; en combat, seuls les sons utiles au combat ; heures calmes ; option
-   « seulement quand l'onglet est en arrière-plan » ; une catégorie se tait si un autre script la gère déjà. */
+   « seulement quand l'onglet est en arrière-plan » ; une catégorie se tait si un autre script la gère déjà ; un seul son à
+   la fois (lot S-A, 12/11/2026 : dans la seconde et demie qui suit un son, seul un son de rang plus haut passe). */
 (function (racine) {
   "use strict";
-  // Une note : [fréquence Hz, début s, durée s, forme, volume relatif]
+  // Une note : [fréquence Hz, début s, durée s, forme, volume relatif]. La forme « bruit » est un souffle : du bruit passé
+  // dans un filtre centré sur la fréquence (sans note), joué en sinus si le navigateur ne sait pas faire de bruit.
+  // Rang (lot S-A, d'après la norme des alarmes IEC 60601-1-8 et Material Design) : 3 urgent, 2 pour toi, 1 pour info
   var CATEGORIES = {
-    message:   { nom: "Nouveau message (messagerie)", notes: [[660, 0, .12, "sine", 1], [990, .1, .18, "sine", .8]], delai: 4000 },
-    mention:   { nom: "Ton nom cité dans le chat", notes: [[880, 0, .09, "triangle", 1], [1175, .08, .09, "triangle", .9], [1320, .16, .16, "triangle", .7]], delai: 3000 },
-    chuchote:  { nom: "On te chuchote", notes: [[520, 0, .16, "sine", .7], [700, .14, .2, "sine", .5]], delai: 3000 },
-    chat:      { nom: "Nouvelle réplique dans le chat", notes: [[740, 0, .06, "sine", .45]], delai: 8000 },
-    vol:       { nom: "Vol d'objet", notes: [[330, 0, .14, "square", .5], [247, .14, .22, "square", .5]], delai: 2000, combat: true },
-    combat:    { nom: "Début de combat", notes: [[196, 0, .12, "sawtooth", .45], [196, .16, .12, "sawtooth", .45], [262, .32, .22, "sawtooth", .5]], delai: 10000, combat: true },
-    munitions: { nom: "Munitions basses", notes: [[1046, 0, .05, "square", .35], [1046, .09, .05, "square", .35]], delai: 6000, combat: true },
-    neuvopack: { nom: "Neuvopack plein", notes: [[523, 0, .1, "sine", .7], [659, .1, .1, "sine", .7], [784, .2, .2, "sine", .7]], delai: 30000 },
-    fouille:   { nom: "Fouille terminée", notes: [[587, 0, .1, "triangle", .6], [880, .1, .16, "triangle", .5]], delai: 5000 },
-    rappel:    { nom: "Rappel de DECK", notes: [[784, 0, .12, "sine", .7], [784, .2, .12, "sine", .7], [1046, .4, .2, "sine", .6]], delai: 20000 },
-    notif:     { nom: "Autre notification du jeu", notes: [[600, 0, .08, "sine", .5]], delai: 4000 },
+    message:   { nom: "Nouveau message (messagerie)", notes: [[660, 0, .12, "sine", 1], [990, .1, .18, "sine", .8]], delai: 4000, rang: 2 },
+    mention:   { nom: "Ton nom cité dans le chat", notes: [[880, 0, .09, "triangle", 1], [1175, .08, .09, "triangle", .9], [1320, .16, .16, "triangle", .7]], delai: 3000, rang: 2 },
+    chuchote:  { nom: "On te chuchote", notes: [[520, 0, .16, "sine", .7], [700, .14, .2, "sine", .5]], delai: 3000, rang: 2 },
+    chat:      { nom: "Nouvelle réplique dans le chat", notes: [[740, 0, .12, "bruit", 1.6]], delai: 8000, rang: 1 },
+    vol:       { nom: "Vol d'objet", notes: [[330, 0, .14, "square", .5], [247, .14, .22, "square", .5]], delai: 2000, combat: true, rang: 3 },
+    combat:    { nom: "Début de combat", notes: [[196, 0, .12, "sawtooth", .45], [196, .16, .12, "sawtooth", .45], [262, .32, .22, "sawtooth", .5]], delai: 10000, combat: true, rang: 3 },
+    munitions: { nom: "Munitions basses", notes: [[1046, 0, .05, "square", .35], [1046, .09, .05, "square", .35]], delai: 6000, combat: true, rang: 3 },
+    neuvopack: { nom: "Neuvopack plein", notes: [[523, 0, .1, "sine", .7], [659, .1, .1, "sine", .7], [784, .2, .2, "sine", .7]], delai: 30000, rang: 1 },
+    fouille:   { nom: "Fouille terminée", notes: [[587, 0, .1, "triangle", .6], [880, .1, .16, "triangle", .5]], delai: 5000, rang: 1 },
+    rappel:    { nom: "Rappel de DECK", notes: [[784, 0, .12, "sine", .7], [784, .2, .12, "sine", .7], [1046, .4, .2, "sine", .6]], delai: 20000, rang: 2 },
+    notif:     { nom: "Autre notification du jeu", notes: [[600, 0, .08, "sine", .5]], delai: 4000, rang: 1 },
     // REFONTE-2.md §14 : deux sinus doux en entrant dans un lieu ; un triangle bref quand un tour de combat commence
-    lieu:      { nom: "Arrivée dans un lieu", notes: [[415, 0, .2, "sine", .5], [554, .16, .3, "sine", .4]], delai: 8000 },
-    tour:      { nom: "Nouveau tour de combat", notes: [[1109, 0, .07, "triangle", .6], [1480, .08, .12, "triangle", .5]], delai: 3000, combat: true }
+    lieu:      { nom: "Arrivée dans un lieu", notes: [[415, 0, .2, "sine", .5], [554, .16, .3, "sine", .4]], delai: 8000, rang: 1 },
+    tour:      { nom: "Nouveau tour de combat", notes: [[1109, 0, .07, "triangle", .6], [1480, .08, .12, "triangle", .5]], delai: 3000, combat: true, rang: 2 }
   };
   var DEFAUTS = {
     general: .6, actif: true, arrierePlan: { chat: true }, heuresCalmes: null,
@@ -210,12 +215,14 @@
     souterrain: [["bruit", "lowpass", 240, .7, .7], ["goutte"]]
   };
   var PART_AMBIANCE = .1;
+  // Un seul son à la fois : dans cet intervalle après un son, seul un son de rang plus haut passe
+  var ENTRE_DEUX = 1500;
 
   function creer(opts) {
     opts = opts || {};
     var reglages = JSON.parse(JSON.stringify(DEFAUTS)); if (opts.reglages) Object.assign(reglages, opts.reglages);
     var Ctx = opts.AudioContext || racine.AudioContext || racine.webkitAudioContext;
-    var ctx = null, arme = !!opts.arme, derniers = {}, cedes = {}, journal = [];
+    var ctx = null, arme = !!opts.arme, derniers = {}, cedes = {}, journal = [], dernierSon = null, bruitNote = null;
     var maintenant = opts.horloge || function () { return Date.now(); };
     var enCombat = opts.enCombat || function () { return false; };
     var cache = opts.ongletCache || function () { return typeof document !== "undefined" && document.hidden; };
@@ -241,6 +248,7 @@
       var hc = reglages.heuresCalmes;
       if (hc && !def.combat) { var h = heure(); if (hc[0] > hc[1] ? (h >= hc[0] || h < hc[1]) : (h >= hc[0] && h < hc[1])) return "heures calmes"; }
       var t = maintenant(); if (derniers[cat] != null && t - derniers[cat] < def.delai) return "anti-rafale";
+      if (dernierSon && t - dernierSon.t < ENTRE_DEUX && (def.rang || 1) <= dernierSon.rang) return "un son au moins aussi important vient de jouer";
       return null;
     }
 
@@ -248,20 +256,37 @@
       var raison = force ? (CATEGORIES[cat] ? null : "catégorie inconnue") : raisonDeSilence(cat);
       if (raison) { noter(cat + " : silencieux (" + raison + ")"); return false; }
       derniers[cat] = maintenant();
+      if (!force) dernierSon = { t: derniers[cat], rang: CATEGORIES[cat].rang || 1 };
       if (!Ctx) { noter(cat + " : pas de Web Audio"); return false; }
       if (!ctx) ctx = new Ctx();
       var vol = Math.max(0, Math.min(1, (force ? 1 : reglages.volumes[cat]) * reglages.general)), t0 = ctx.currentTime + .02;
       CATEGORIES[cat].notes.forEach(function (n) {
-        var o = ctx.createOscillator(), g = ctx.createGain();
-        o.type = n[3]; o.frequency.setValueAtTime(n[0], t0 + n[1]);
-        g.gain.setValueAtTime(0.0001, t0 + n[1]);
-        g.gain.exponentialRampToValueAtTime(Math.max(0.0002, .25 * vol * n[4]), t0 + n[1] + .015);
-        g.gain.exponentialRampToValueAtTime(0.0001, t0 + n[1] + n[2]);
-        o.connect(g); g.connect(ctx.destination);
-        o.start(t0 + n[1]); o.stop(t0 + n[1] + n[2] + .02);
+        var g = ctx.createGain(), debut = t0 + n[1], s = source(n, debut);
+        g.gain.setValueAtTime(0.0001, debut);
+        g.gain.exponentialRampToValueAtTime(Math.max(0.0002, .25 * vol * n[4]), debut + .015);
+        g.gain.exponentialRampToValueAtTime(0.0001, debut + n[2]);
+        s.sortie.connect(g); g.connect(ctx.destination);
+        s.source.start(debut); s.source.stop(debut + n[2] + .02);
       });
       noter(cat + " : joué");
       return true;
+    }
+
+    // La source d'une note : un oscillateur, ou pour un souffle du bruit filtré autour de la fréquence (un sinus sinon)
+    function source(n, debut) {
+      if (n[3] === "bruit" && ctx.createBuffer && ctx.createBufferSource && ctx.createBiquadFilter) {
+        if (!bruitNote) {
+          var sr = ctx.sampleRate || 44100; bruitNote = ctx.createBuffer(1, Math.ceil(sr * .5), sr);
+          var d = bruitNote.getChannelData(0); for (var i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+        }
+        var b = ctx.createBufferSource(), f = ctx.createBiquadFilter();
+        b.buffer = bruitNote; f.type = "bandpass"; f.frequency.setValueAtTime(n[0], debut); f.Q.setValueAtTime(.8, debut);
+        b.connect(f);
+        return { source: b, sortie: f };
+      }
+      var o = ctx.createOscillator();
+      o.type = n[3] === "bruit" ? "sine" : n[3]; o.frequency.setValueAtTime(n[0], debut);
+      return { source: o, sortie: o };
     }
 
     // L'ambiance voulue (un lieu, ou null) est jouée dès que rien ne l'interdit, et s'éteint en fondu sinon
@@ -8815,7 +8840,7 @@
   // choix : normale (rangée après 20 s si elle ne demande rien), rangée aussitôt, ou rangée sans son.
   // « Ne pas déranger » (maquette, points 9 et 12) : les notifications rangées sans son (sauf un combat), et seuls les sons
   // qui te concernent (mention, chuchotement, combat, tour) ; retenu sur cet appareil, coupé depuis la palette
-  var magNPD = magasin("nePasDeranger"), npd = magNPD.lire() === true, SONS_NPD = ["mention", "chuchote", "combat", "tour"];
+  var magNPD = magasin("nePasDeranger"), npd = magNPD.lire() === true, SONS_NPD = ["mention", "chuchote", "combat", "tour", "munitions", "vol"];
   function modeNotif(type) { return npd && !/combat/i.test(type) ? "muette" : modesCats[categorieNotif(type)] || "normale"; }
   function basculerNPD() {
     npd = !npd;
@@ -8838,6 +8863,11 @@
   }
   var magCats = magasin("notifsCategories"), modesCats = Object.create(null), MODES_NOTIF = [["normale", "Normale"], ["aussitot", "Rangée aussitôt"], ["muette", "Rangée, sans son"]];
   (function (brut) { if (brut && typeof brut === "object") Object.keys(brut).slice(0, 100).forEach(function (k) { if (/^[\w-]{1,60}$/.test(k) && (brut[k] === "aussitot" || brut[k] === "muette")) modesCats[k] = brut[k]; }); })(magCats.lire());
+  // Une notification de vol (lot S-A) : le jeu nomme son type d’après le titre (« un-combat-eclate-- ») ; le nom exact
+  // d’un vol n’a pas encore été relevé, on reconnaît donc le mot entier « vol », « volé(e)(s) », « dérob… » ou « subtilis… »
+  function notifDeVol(type, titre) {
+    return /(^|-)(vol|vole|volee|voles|volees|derobe|derobee|subtilise)(-|$)/.test(type || "") || /(^|[^a-zà-ÿ])(vol(é|ée|és|ées)?([^a-zà-ÿ]|$)|dérob|subtilis)/i.test(titre || "");
+  }
   function categorieNotif(type) { return /^alerte-/.test(type) ? "alerte" : /^objet-vendu/.test(type) ? "objet-vendu" : type || "autre"; }
   var nonVues = 0, filtreNotifs = "";
   var magNotifs = magasin("notifications"), RANGER_MS = 20000, vuesNotifs = Object.create(null), vuesCles = Object.create(null), quantites = new WeakMap(), minuteurs = new WeakMap(), premieresNotifs = true;
@@ -8860,7 +8890,7 @@
     return copie.textContent.replace(/\s+/g, " ").replace(/[\s-]+$/, "").trim().slice(0, 300);
   }
   function majNotifs() {
-    var nouvelles = 0, sonores = 0, combatSonore = false, boites = document.querySelectorAll("#zone_evilBox > .evilBox, body > .evilBox, body > evilbox");
+    var nouvelles = 0, sonores = 0, combatSonore = false, volSonore = false, boites = document.querySelectorAll("#zone_evilBox > .evilBox, body > .evilBox, body > evilbox");
     // Les registres de la page ne grossissent pas sans fin : au-delà de 500, seules les notifications affichées y restent
     if (Object.keys(vuesCles).length > 500) {
       var la = Object.create(null);
@@ -8881,17 +8911,18 @@
         animer(box, [{ opacity: 0, translate: "12px 0", offset: 0 }], MV.moyen);
         animer(box, [{ boxShadow: "inset 0 0 0 2px " + couleurAcc(), offset: 0 }], MV.fond, { expressif: true });
       }
-      // Ne pas déranger : tout est rangé sans son, sauf ce qui touche un combat
-      var type = (box.getAttribute("simplified") || "").slice(0, 60), mode = modeNotif(type);
+      // Ne pas déranger : tout est rangé sans son, sauf ce qui touche un combat ou un vol (lot S-A) ; un vol suit alors
+      // le choix fait pour sa catégorie
+      var type = (box.getAttribute("simplified") || "").slice(0, 60), titreBox = ((box.querySelector(".titre") || {}).textContent || "").trim().slice(0, 80);
+      var estVol = notifDeVol(type, titreBox), mode = estVol && npd ? modesCats[categorieNotif(type)] || "normale" : modeNotif(type);
       // Nouvelle, d'après ce que cette page a déjà vu. Le jeu redonne ses identifiants après un rechargement : l'historique
       // ne sert qu'au chargement, pour ne pas noter deux fois celles qui étaient déjà affichées
       var nouvelle = premieresNotifs ? !historique.some(function (h) { return h.id === cle; }) : !vuesCles[cle];
       vuesCles[cle] = true;
       if (nouvelle) {
-        historique.unshift({ id: cle, t: Date.now(), type: type,
-          titre: ((box.querySelector(".titre") || {}).textContent || "").trim().slice(0, 80), texte: texteNotif(box) });
+        historique.unshift({ id: cle, t: Date.now(), type: type, titre: titreBox, texte: texteNotif(box) });
         nouvelles++;
-        if (mode !== "muette") { sonores++; if (/combat/i.test(type)) combatSonore = true; }
+        if (mode !== "muette") { sonores++; if (/combat/i.test(type)) combatSonore = true; if (estVol) volSonore = true; }
       }
       clearTimeout(minuteurs.get(box));
       box.classList.toggle("dcc-rangee-choix", mode !== "normale");
@@ -8904,8 +8935,9 @@
     if (nouvelles) {
       ecrireNotifs();
       // Celles déjà là au chargement de la page ne sonnent pas
-      // Sous « Ne pas déranger », une notification de combat sonne comme un combat (le son « notif » y est coupé ; n° 40)
-      if (!premieresNotifs && sonores && sons) sons.jouer(npd && combatSonore ? "combat" : "notif");
+      // Sous « Ne pas déranger », une notification de combat sonne comme un combat (le son « notif » y est coupé ; n° 40).
+      // Un vol a son propre son, même onglet au premier plan (lot S-A, SONS-2026-11-12.md S2)
+      if (!premieresNotifs && sonores && sons) sons.jouer(volSonore ? "vol" : npd && combatSonore ? "combat" : "notif");
       if (!premieresNotifs) { nonVues += nouvelles; majCloche(); rebondir(cloche); }
       majSectionNotifs();
       if (notifsAffichees()) remplirNotifs();
@@ -13459,7 +13491,7 @@
     if (passerelle) passerelle.envoyer("theme", { livree: "neon", mouvement: mouvementEffectif(), immersion: "equilibree" });
   }
   try {
-    passerelle = window.DCC_PASSERELLE.creer({ nom: "confort", version: VERSION, capacites: ["theme", "combat", "contacts", "taches", "secteur", "fiche"] });
+    passerelle = window.DCC_PASSERELLE.creer({ nom: "confort", version: VERSION, capacites: ["theme", "combat", "contacts", "taches", "secteur", "fiche", "rappel"] });
     passerelle.ecouter("bonjour", function () { envoyerTheme(); majSectionEtat(); });
     // Les relations que DECK connaît (allié, méfiance…) : un mot affiché dans la fiche d'un pion et la carte-portrait, rien d'autre
     passerelle.ecouter("contacts", function (d) {
@@ -13482,6 +13514,9 @@
         alertes: Math.max(0, Math.min(99, d.alertes || 0)), depassements: Math.max(0, Math.min(99, d.depassements || 0)) };
       etape("bandeau", majBandeauEtat);
     });
+    // Lot S-A : un rappel de DECK vient de s’afficher dans le pont ; DC Confort le fait sonner, selon ses propres règles
+    // (volume, combat, Ne pas déranger, anti-rafale de 20 s). Rien d’autre
+    passerelle.ecouter("rappel", function () { if (sons) sons.jouer("rappel"); });
     passerelle.ecouter("fiche", function (d) {
       if (!d || typeof d.nom !== "string" || !d.nom) return;
       fichesDeck[cleNom(d.nom)] = { trouve: !!d.trouve, poste: propreD(d.poste, 80), employeur: propreD(d.employeur, 60), relation: propreD(d.relation, 30),
