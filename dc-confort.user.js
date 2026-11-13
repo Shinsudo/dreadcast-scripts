@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DC Confort
 // @namespace    deck.local
-// @version      0.125.1
+// @version      0.125.2
 // @updateURL    https://raw.githubusercontent.com/Shinsudo/dreadcast-scripts/main/dc-confort.meta.js
 // @downloadURL  https://raw.githubusercontent.com/Shinsudo/dreadcast-scripts/main/dc-confort.user.js
 // @description  Rend l'écran de Dreadcast et son forum plus lisibles. Le Courrier, façon DDM V2, lit les messages auprès du jeu et envoie tes réponses, à ta demande seulement.
@@ -45,7 +45,7 @@
    Repères du jeu : DOM-JEU.md (relevés du 23 et du 24/10/2026). */
 (function () {
   "use strict";
-  var VERSION = "0.125.1";
+  var VERSION = "0.125.2";
   var racine = document.documentElement;
   // Les éléments que DC Confort crée : un changement fait dedans ne relance pas l'observateur (audit de phase 6, n° 14)
   var nos = typeof WeakSet === "function" ? new WeakSet() : null;
@@ -1270,6 +1270,9 @@
     fouille: [["circle", { cx: 11, cy: 11, r: 8 }], ["path", { d: "m21 21-4.3-4.3" }]],
     scruter: [["path", { d: "M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z" }], ["circle", { cx: 12, cy: 12, r: 3 }]],
     soin: [["path", { d: "M5 12h14" }], ["path", { d: "M12 5v14" }]],
+    // (v0.125.2) Le soin sur le pion : une croix pleine aux coins arrondis. Le « + » au trait tombait à 0,75 px dans la
+    // pastille de 12 px et se lisait « ajouter ». fill « plein » = la couleur passée à imageIcone
+    soinPion: [["path", { d: "M9.5 3.5h5v6h6v5h-6v6h-5v-6h-6v-5h6z", fill: "plein" }]],
     travail: [["path", { d: "m15 12-8.5 8.5c-.83.83-2.17.83-3 0a2.12 2.12 0 0 1 0-3L12 9" }], ["path", { d: "M17.64 15 22 10.64" }],
       ["path", { d: "m20.91 11.7-1.25-1.25c-.6-.6-.93-1.4-.93-2.25v-.86L16.01 4.6a5.56 5.56 0 0 0-3.94-1.64H9l.92.82A6.18 6.18 0 0 1 12 8.4v1.56l2 2h2.47l2.26 1.91" }]],
     reparation: [["path", { d: "M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" }]],
@@ -1392,7 +1395,7 @@
   }
   // Une icône en image pour les styles (data:, rien n'est chargé), d'une couleur donnée
   function imageIcone(nom, couleur, taille) {
-    var corps = ICONES[nom].map(function (fo) { return "<" + fo[0] + Object.keys(fo[1]).map(function (k) { return " " + k + "='" + fo[1][k] + "'"; }).join("") + "/>"; }).join("");
+    var corps = ICONES[nom].map(function (fo) { return "<" + fo[0] + Object.keys(fo[1]).map(function (k) { return " " + k + "='" + (fo[1][k] === "plein" ? couleur : fo[1][k]) + "'"; }).join("") + "/>"; }).join("");
     var svg = "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'" + (taille ? " width='" + taille + "' height='" + taille + "'" : "") + " fill='none' stroke='" + couleur + "' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'>" + corps + "</svg>";
     return "url(\"data:image/svg+xml," + encodeURIComponent(svg) + "\")";
   }
@@ -1400,7 +1403,7 @@
   // Lot 123 (planche Carte-v7) : chaque action à sa couleur, aussi sur le cercle du picto ; le repos, le plus courant, en
   // gris ; travailler : la mallette, en bleu acier. [classe du jeu, icône, couleur, cercle si autre que la couleur]
   var ACTIONS_PION = [["repos", "repos", V3.pale, "rgb(125 140 163 / .5)"], ["recherche, > .le_icon_perso.fouille", "fouille", V3.actFouille], ["scruter", "scruter", V3.actScrute],
-    ["soin", "soin", V3.actSoin], ["travail", "travailJeu", V3.actTravail], ["reparation", "reparation", V3.actRepare], ["destruction", "destruction", V3.alerte], ["deplacement", "deplacement", V3.texte]];
+    ["soin", "soinPion", V3.actSoin], ["travail", "travailJeu", V3.actTravail], ["reparation", "reparation", V3.actRepare], ["destruction", "destruction", V3.alerte], ["deplacement", "deplacement", V3.texte]];
 
   // ---------- Styles de la Refonte 2, « le Pupitre » (REFONTE-2.md), posés sous html.dcc-maquette (une seule couche depuis la v0.94.0) ----------
   // Rien ne change de colonne : la fiche reste à gauche, la carte au centre, le chat à droite, comme le jeu les place ; le
@@ -2798,6 +2801,8 @@
     // Ce qu'on fait (repos, fouille, scruter, soin…) : le picto en bas à droite de la case
     ZC121 + " .dcc-pion::before { left: auto !important; top: auto !important; right: -2px; bottom: -2px; width: 12px !important; height: 12px !important; background-size: 9px !important;",
     "  box-shadow: 0 0 0 1px var(--dcc-act, rgb(255 255 255 / .22)) !important; z-index: 3; }",
+    // La croix pleine du soin remplit la pastille (10 px) : à 9, ses bras restaient trop courts pour se lire
+    ZC121 + " .icon_perso:has(> .le_icon_perso.soin) > .dcc-pion::before { background-size: 10px !important; }",
     // Une pile : devant en bas à gauche, l'autre décalé derrière en haut à droite, assombri ; le nombre dès trois, dans une
     // petite pastille ardoise (lot 123, l'or reste à toi)
     ZC121 + " .icon_perso > .dcc-pion[data-dcc-n] > .dcc-rang-0 { inset: auto !important; left: 1px !important; top: 7px !important; width: 17px !important; height: 17px !important; z-index: 1; }",
