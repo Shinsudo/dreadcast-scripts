@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DC Confort
 // @namespace    deck.local
-// @version      0.126.0
+// @version      0.127.0
 // @updateURL    https://raw.githubusercontent.com/Shinsudo/dreadcast-scripts/main/dc-confort.meta.js
 // @downloadURL  https://raw.githubusercontent.com/Shinsudo/dreadcast-scripts/main/dc-confort.user.js
 // @description  Rend l'écran de Dreadcast et son forum plus lisibles. Le Courrier, façon DDM V2, lit les messages auprès du jeu et envoie tes réponses, à ta demande seulement.
@@ -31,7 +31,10 @@
      met en forme ton texte (raccourcis, commandes de narration) ou retient un message trop long : rien ne part sans toi.
    · Exception, le Courrier façon DDM V2 (ta demande du 26/10/2026) : à l'ouverture d'une conversation et quand tu cliques
      « Charger », il lit auprès du jeu les textes qu'il n'affiche pas (un à la fois) ; quand tu envoies, il passe par le
-     formulaire et les fonctions du jeu. Rien en fond, rien à intervalle, rien que tu n'aies demandé.
+     formulaire et les fonctions du jeu. Deux lectures se font sans clic, à ta demande (27/10/2026 et lot 124) : une
+     conversation ouverte dans le Courrier se relit quand le jeu y signale un nouveau message, et la liste demande sa
+     suite au jeu quand tu défiles jusqu'en bas. « Chercher plus loin » demande les pages suivantes seulement après
+     ton clic, 40 au plus. Rien à intervalle, rien pour une conversation fermée, rien d'envoyé sans toi.
    · Il ne remplace aucune fonction du jeu. Il ajoute des styles de lecture, une entrée « DC Confort » dans le menu
      Paramètres et un panneau de réglages. Tous ses identifiants et classes commencent par « dcc- ».
    · Il repère le combat et tes autres scripts pour leur laisser la place, et parle au pont DECK par la passerelle
@@ -45,7 +48,7 @@
    Repères du jeu : DOM-JEU.md (relevés du 23 et du 24/10/2026). */
 (function () {
   "use strict";
-  var VERSION = "0.126.0";
+  var VERSION = "0.127.0";
   var racine = document.documentElement;
   // Les éléments que DC Confort crée : un changement fait dedans ne relance pas l'observateur (audit de phase 6, n° 14)
   var nos = typeof WeakSet === "function" ? new WeakSet() : null;
@@ -2856,14 +2859,14 @@
     ZC121 + " .dcc-pion[data-dcc-ev-bas] > .dcc-eventail { bottom: auto; top: calc(100% + 6px); }",
     ZC121 + " .icon_perso:hover > .dcc-pion[data-dcc-n] .dcc-pion-nom { visibility: hidden !important; }",
     ZC121 + " .dcc-eventail .dcc-ev-qui { width: 58px; display: flex; flex-direction: column; align-items: center; gap: 2px; font: 600 11px/13px 'Segoe UI', system-ui, sans-serif; }",
-    ZC121 + " .dcc-eventail .dcc-av { position: static !important; width: 19px !important; height: 19px !important; margin: 4px 0 2px; border-radius: 50%; font-size: 8px !important;",
+    ZC121 + " .dcc-eventail .dcc-av { position: static !important; width: 19px !important; height: 19px !important; margin: 4px 0 2px; border-radius: 50%; font-size: 8px !important; /* initiales dans un disque de 19 px : seule exception aux 11 px, le nom est écrit dessous */",
     "  box-shadow: 0 0 0 1px #070a11, 0 0 0 2px color-mix(in srgb, var(--dcc-en-ligne) 82%, transparent) !important; }",
     ZC121 + " .dcc-eventail .dcc-ev-qui:not([data-ligne]) .dcc-av { opacity: .5; filter: grayscale(.85) brightness(.85); box-shadow: 0 0 0 1px #070a11, 0 0 0 1.5px rgb(150 160 175 / .28) !important; }",
     ZC121 + " .dcc-eventail .dcc-ev-qui[data-rel='proche'] .dcc-av { box-shadow: 0 0 0 1px #070a11, 0 0 0 2px color-mix(in srgb, var(--dcc-en-ligne) 82%, transparent), 0 0 0 3px #070a11, 0 0 0 4px var(--dcc-proche) !important; }",
     ZC121 + " .dcc-eventail .dcc-ev-qui[data-rel='mefiance'] .dcc-av { box-shadow: 0 0 0 1px #070a11, 0 0 0 2px color-mix(in srgb, var(--dcc-en-ligne) 82%, transparent), 0 0 0 3px #070a11, 0 0 0 4px var(--dcc-mefiance) !important; }",
     ZC121 + " .dcc-eventail .dcc-ev-nom { max-width: 56px; overflow: hidden; text-overflow: ellipsis; color: var(--dcc-qui, var(--dcc-t1)); }",
     ZC121 + " .dcc-eventail .dcc-ev-qui:not([data-ligne]) .dcc-ev-nom { color: var(--dcc-t3); }",
-    ZC121 + " .dcc-eventail :is(.dcc-ev-etat, .dcc-ev-rel) { font-size: 10px; line-height: 11px; font-weight: 400; color: var(--dcc-t3); }",
+    ZC121 + " .dcc-eventail :is(.dcc-ev-etat, .dcc-ev-rel) { font-size: 11px; line-height: 12px; font-weight: 400; color: var(--dcc-t3); }",
     ZC121 + " .dcc-eventail [data-rel='proche'] .dcc-ev-rel { color: var(--dcc-proche); } " + ZC121 + " .dcc-eventail [data-rel='mefiance'] .dcc-ev-rel { color: var(--dcc-mefiance); }",
     // La bulle, façon planche (lot 123) : le nom en tête de la réplique sur la même ligne (« Kessel@Mira : … »), un trait à
     // gauche à la teinte de qui parle, pas de pointe ; murmure en trait tireté, cri en rouge, mention en or, action en italique
@@ -3259,10 +3262,9 @@
     W124 + " .dcc-im-a-puce button { width: 24px !important; height: 24px !important; min-height: 24px; padding: 0 !important; border-radius: 50% !important; } " + W124 + " .dcc-im-a-puce svg { width: 11px; height: 11px; }",
     W124 + " .dcc-im-a-saisie { flex: 1 1 120px; min-width: 120px; height: 28px !important; margin: 0 !important; padding: 0 4px !important; border: 0 !important; background: transparent !important; box-shadow: none !important; outline: none !important; }",
     // Mouvement : les menus s'ouvrent en 120 ms, ⌄ apparaît en fondu (rien si tu as demandé moins d'animations)
-    "@media (prefers-reduced-motion: no-preference) {",
-    "  " + L124 + " li.message > .dcc-l-menu { transition: opacity .12s ease; }",
-    "  " + L124 + " > .dcc-l-pop, " + W124 + " :is(.dcc-im-emenu, .dcc-im-bmenu):not([hidden]) { animation: dccPop124 .12s ease-out both; }",
-    "}",
+    // (sous dcc-anime, comme tout le reste : coupé par « Mouvement : aucun », en combat et par le réglage du système)
+    L124.replace("html.dcc-maquette", "html.dcc-maquette.dcc-anime") + " li.message > .dcc-l-menu { transition: opacity .12s ease; }",
+    L124.replace("html.dcc-maquette", "html.dcc-maquette.dcc-anime") + " > .dcc-l-pop, " + W124.replace("html.dcc-maquette", "html.dcc-maquette.dcc-anime") + " :is(.dcc-im-emenu, .dcc-im-bmenu):not([hidden]) { animation: dccPop124 .12s ease-out both; }",
     "@keyframes dccPop124 { from { opacity: 0; transform: translateY(-3px); } to { opacity: 1; transform: none; } }"
   ];
 
@@ -3895,7 +3897,10 @@
     // Ce que DC Confort masque reste masqué, même si la page ou un skin donne un affichage à toutes les div
     "[class*='dcc-'][hidden], [id^='dcc-'][hidden] { display: none !important; }",
     // Aides du chat : invisibles tant qu'elles ne sont pas demandées, ou si Chat Enhancer tient le chat
-    "#chatContent .dcc-sep, #chatForm .dcc-cpt { display: none; }",
+    "#chatContent .dcc-sep, #chatForm .dcc-cpt, #chatForm .dcc-apercu { display: none; }",
+    // L'aperçu de ce qui part : une ligne posée juste au-dessus du champ, hors du flux (la grille du jeu ne bouge pas)
+    "html.dcc-maquette.dcc-chat-aide:not(.dcc-cede-chat) #chatForm .dcc-apercu.dcc-on { display: block; position: absolute; left: 0; right: 0; bottom: 100%; margin: 0 0 4px; padding: 4px 8px; box-sizing: border-box; max-height: 3.2em; overflow: hidden; pointer-events: none; font: 12px/1.4 var(--dcc-texte, 'Segoe UI', sans-serif); color: var(--dcc-t2); background: var(--dcc-menu); border: 1px solid rgb(var(--dcc-filet-rvb) / .3); border-radius: 4px; z-index: 2; }",
+    "html.dcc-maquette.dcc-chat-aide:not(.dcc-cede-chat) #chatForm .dcc-apercu.dcc-on::before { content: 'Partira ainsi : '; color: var(--dcc-t3); }",
     // Annonce pour les lecteurs d'écran : présente, mais hors de l'écran
     "#chatForm .dcc-annonce { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }",
     // Les initiales (et le « ? » d'un inconnu) sont dans un attribut : copier une ligne ne les emporte pas
@@ -4525,14 +4530,26 @@
     var champ = document.querySelector("#chatForm .text_chat");
     if (!champ || champ.hasAttribute("data-dcc")) return;
     champ.setAttribute("data-dcc", "1");
-    var cpt = el("span", "dcc-cpt"), annonce = el("span", "dcc-annonce"), palier = "";
+    var cpt = el("span", "dcc-cpt"), annonce = el("span", "dcc-annonce"), apercu = el("span", "dcc-apercu"), palier = "", vuApercu = "";
     annonce.setAttribute("aria-live", "polite");
+    apercu.setAttribute("aria-hidden", "true");
     champ.parentNode.insertBefore(cpt, champ.nextSibling);
     champ.parentNode.insertBefore(annonce, cpt.nextSibling);
+    champ.parentNode.insertBefore(apercu, annonce.nextSibling);
+    // L'aperçu ne paraît que si DC Confort change ce que tu as tapé (*émote*, "parole" dans /me, /alias) : tu vois la
+    // réplique telle qu'elle partira. Rien quand le texte part tel quel.
+    var majApercu = function (actif, tape) {
+      var t = actif && tape ? transformer(tape) : null, montre = t && !t.refus && t.texte !== tape ? t.texte : "";
+      if (montre === vuApercu) return;
+      vuApercu = montre;
+      apercu.classList.toggle("dcc-on", !!montre);
+      if (montre) rendreApercu(apercu, montre); else apercu.textContent = "";
+    };
     var annoncer = function (p, texte) { if (p !== palier) { palier = p; annonce.textContent = texte; } };
     var maj = function () {
       // Hors Maquette, le compteur se tait et ne dit rien (lot 101 bis, M16)
-      if (!racine.classList.contains("dcc-confort")) { if (cpt.textContent) cpt.textContent = ""; cpt.className = "dcc-cpt"; annoncer("", ""); return; }
+      if (!racine.classList.contains("dcc-confort")) { if (cpt.textContent) cpt.textContent = ""; cpt.className = "dcc-cpt"; annoncer("", ""); majApercu(false, ""); return; }
+      majApercu(raccourcisActifs(), champ.value);
       var m = mesureChat(raccourcisActifs() ? raccourcis(champ.value) : champ.value), max = m.max, lg = m.lg;
       // Paliers à 135 et 170 sur 199, à proportion pour une autre limite
       var attention = Math.round(max * 135 / 199), alerte = Math.round(max * 170 / 199);
@@ -4578,7 +4595,25 @@
   function raccourcis(texte) { return transformer(texte).texte; }
   function miseEnForme(texte) {
     if (/^\/me(?=\s|$)/i.test(texte)) return "/me" + texte.slice(3).replace(/"([^"\n]+)"/g, "[c=FFFFFF]$1[/c]");
-    return texte.replace(/\*([^*\n]+)\*/g, "[c=58DCF9][i]$1[/i][/c]");
+    // *sourit* n'est une action que posé comme un mot : l'étoile ouvrante suit un blanc ou une ponctuation ouvrante et
+    // touche le texte, la fermante touche le texte et précède un blanc, une ponctuation ou la fin. « 2*3*4 », un mot
+    // masqué (« p*** ») ou une étoile seule partent tels quels (15/11/2026).
+    return texte.replace(/(^|[\s(«"'—–-])\*([^\s*](?:[^*\n]*[^\s*])?)\*(?=$|[\s.,;:!?…)»"'—–-])/g, "$1[c=58DCF9][i]$2[/i][/c]");
+  }
+  // L'aperçu de ce qui part : le texte transformé, rendu comme le jeu le montrera (couleur, italique, gras), en
+  // nœuds de texte seulement. Seules les balises que DC Confort pose lui-même sont rendues ; le reste reste du texte.
+  function rendreApercu(hote, texte) {
+    hote.textContent = "";
+    var pile = [hote], re = /\[(\/?)(c|i|b)(?:=([0-9A-Fa-f]{6}))?\]/g, i = 0, m;
+    while ((m = re.exec(texte))) {
+      if (m.index > i) pile[pile.length - 1].appendChild(document.createTextNode(texte.slice(i, m.index)));
+      i = re.lastIndex;
+      if (m[1]) { if (pile.length > 1) pile.pop(); continue; }
+      var s = document.createElement("span");
+      if (m[2] === "c" && m[3]) s.style.color = "#" + m[3]; else if (m[2] === "i") s.style.fontStyle = "italic"; else if (m[2] === "b") s.style.fontWeight = "600";
+      pile[pile.length - 1].appendChild(s); pile.push(s);
+    }
+    if (i < texte.length) pile[pile.length - 1].appendChild(document.createTextNode(texte.slice(i)));
   }
   // À l'envoi : capté sur document, avant le formulaire du jeu, qui lit ensuite le champ comme d'habitude
   document.addEventListener("submit", function (e) {
@@ -4592,7 +4627,11 @@
       if (compteur) compteur.refus(t.refus || "Trop long");
       return;
     }
+    var avant = champ.value;
     champ.value = t.texte;
+    // Le jeu vide le champ quand il a pris la réplique. S'il ne l'a pas prise, le champ garderait les balises : ta
+    // phrase d'origine y est remise (15/11/2026).
+    if (t.texte !== avant) setTimeout(function () { if (champ.value === t.texte) { champ.value = avant; if (compteur) compteur.maj(); } }, 600);
   }, true);
 
   // ---------- Commandes de narration ----------
@@ -5455,7 +5494,7 @@
   // Chargés au démarrage, et repris tels quels d'une sauvegarde importée (chaque champ vérifié)
   function chargerBrouillons(brut) {
     Object.keys(brouillons).forEach(function (k) { delete brouillons[k]; });
-    if (brut && typeof brut === "object") Object.keys(brut).slice(0, 200).forEach(function (k) {
+    if (brut && typeof brut === "object") Object.keys(brut).slice(-200).forEach(function (k) {
       var b = brut[k];
       if (/^\d+$/.test(k) && b && typeof b.texte === "string" && Number.isFinite(b.t)) brouillons[k] = { texte: b.texte.slice(0, 20000), t: b.t };
       else if (k === "nouveau" && b && typeof b.texte === "string" && Number.isFinite(b.t)) brouillons[k] = { texte: b.texte.slice(0, 20000), t: b.t, cible: String(b.cible || "").slice(0, 300), sujet: String(b.sujet || "").slice(0, 35) };
@@ -5776,7 +5815,7 @@
     if (premier) premier.focus({ preventScroll: true });
   }
   // Relus avant d'être changés : deux onglets ouverts ne s'effacent plus l'un l'autre (lot 125, K16 ; M1 de l'audit)
-  function relireDrapeaux(mag, liste) { var b = mag.lire(); if (b && typeof b === "object") chargerDrapeaux(b, liste, 500); }
+  function relireDrapeaux(mag, liste) { var b = mag.lire(); if (b && typeof b === "object") chargerDrapeaux(b, liste, 2000); }
   function fusionnerStocke(mag, cible, valide) {
     var b = mag.lire();
     if (b && typeof b === "object") Object.keys(b).forEach(function (k) { if (/^\d+$/.test(k) && !(k in cible)) { var v = valide(b[k]); if (v != null) cible[k] = v; } });
@@ -5974,9 +6013,14 @@
     if (!m || typeof m.loadFolderContent !== "function") { annoncerPupitre("Le jeu ne donne pas la suite de la liste ici"); return; }
     // « Continuer » après 40 pages : 40 de plus (lot 125, K7 : il ne faisait plus rien)
     loin.actif = true; loin.dossier = dossierCourant(); loin.budget = loin.pages + 40; loin.refus = 0;
+    // Arrêter puis Continuer : la demande encore en vol de la boucle d'avant ne doit pas repartir à côté de la nouvelle
+    // (deux boucles = deux fois plus de demandes au jeu). Chaque lancement a son numéro ; une boucle périmée se tait.
+    clearTimeout(loin.attente);
+    var gen = loin.gen = (loin.gen || 0) + 1;
     var finir = function (l) { loin.actif = false; loin.fini = true; porteeListe124(l); };
     var page = function () {
       var l = document.getElementById("liste_messages");
+      if (gen !== loin.gen) return;
       if (!loin.actif || !l || dossierCourant() !== loin.dossier) { loin.actif = false; return; }
       if (loin.pages >= loin.budget) { arreterPlusLoin(); return; }
       var avant = nbLignesConv(), t0 = Date.now(), vides = 0, r;
@@ -5987,21 +6031,21 @@
       // lignes retombe, ce n'est pas la fin. Seule une réponse vide l'est.
       if (r && typeof r.then === "function") {
         r.then(function (rep) {
-          if (!loin.actif) return;
+          if (!loin.actif || gen !== loin.gen) return;
           loin.refus = 0;
           var n = lignesReponse(rep);
           if (n === 0 || (n === null && nbLignesConv() === avant)) { finir(l); return; }
           loin.pages++; porteeListe124(l); loin.attente = setTimeout(page, 400);
         }, function () {
           // Le jeu refuse pendant qu'il charge déjà (son défilement) : on redemande, cinq fois au plus
-          if (!loin.actif) return;
+          if (!loin.actif || gen !== loin.gen) return;
           if (++loin.refus > 5) { arreterPlusLoin(); annoncerPupitre("Le jeu ne donne pas la suite pour l'instant : réessaie dans un moment"); return; }
           loin.attente = setTimeout(page, 1200);
         });
         return;
       }
       (function attendre() {
-        if (!loin.actif) return;
+        if (!loin.actif || gen !== loin.gen) return;
         var n = nbLignesConv();
         if (n > avant) { loin.pages++; porteeListe124(l); loin.attente = setTimeout(page, 500); return; }
         // La liste a été refaite par le jeu (un message est arrivé) : on reprend depuis là, sans conclure
@@ -6415,8 +6459,16 @@
         magEntetes.ecrire(ENTETES_RP.map(function (e) { return e.slice(); }));
         magSignature.ecrire(signature.trim().slice(0, 300));
         rafraichirChoixEntetes();
+        // Une entête renommée ou supprimée pendant qu'elle était choisie dans une réponse : la puce montrait encore
+        // l'ancien nom alors que le message serait parti sans entête. Le choix est remis à « Sans entête », et dit.
+        var perdues = 0;
+        Array.prototype.forEach.call(document.querySelectorAll("[data-dcc-entete]"), function (z) {
+          var c = z.getAttribute("data-dcc-entete");
+          if (c && !enteteDeCle(c)) { z.setAttribute("data-dcc-entete", ""); perdues++; }
+          if (typeof z.dccMajEntete === "function") z.dccMajEntete();
+        });
         refermer();
-        annoncerPupitre("Entêtes enregistrées (" + ENTETES_RP.length + ")");
+        annoncerPupitre("Entêtes enregistrées (" + ENTETES_RP.length + ")" + (perdues ? " · l'entête choisie dans " + (perdues > 1 ? perdues + " réponses" : "une réponse") + " n'existe plus : choisis-la de nouveau" : ""));
       });
       fermer.addEventListener("click", refermer);
       pied.append(retablir, garder, fermer);
@@ -6539,10 +6591,10 @@
   // Épingles et sourdine, gardées dans ton navigateur (rien n'est envoyé ni marqué lu dans le jeu)
   var magEpingles = magasin("epingles"), epingles = Object.create(null), magSourdines = magasin("sourdines"), sourdines = Object.create(null);
   chargerEpingles(magEpingles.lire());
-  chargerDrapeaux(magSourdines.lire(), sourdines, 500);
+  chargerDrapeaux(magSourdines.lire(), sourdines, 2000);
   function chargerEpingles(brut) {
     Object.keys(epingles).forEach(function (k) { delete epingles[k]; });
-    if (brut && typeof brut === "object") Object.keys(brut).slice(0, 200).forEach(function (k) {
+    if (brut && typeof brut === "object") Object.keys(brut).slice(-200).forEach(function (k) {
       if (!/^\d+$/.test(k) || !Array.isArray(brut[k])) return;
       var l = brut[k].filter(function (e) { return e && /^\d+$/.test(e.id) && typeof e.texte === "string" && typeof e.auteur === "string" && typeof e.date === "string"; }).slice(0, 50);
       if (l.length) epingles[k] = l.map(function (e) { return { id: e.id, texte: e.texte.slice(0, 600), auteur: e.auteur.slice(0, 40), date: e.date.slice(0, 20) }; });
@@ -6551,7 +6603,9 @@
   // Une liste de conversations marquées (sourdine, épinglées, archivées) : { "<numéro>": true }
   function chargerDrapeaux(brut, cible, max) {
     Object.keys(cible).forEach(function (k) { delete cible[k]; });
-    if (brut && typeof brut === "object") Object.keys(brut).slice(0, max).forEach(function (k) { if (/^\d+$/.test(k) && brut[k] === true) cible[k] = true; });
+    // Au-delà du plafond, ce sont les plus anciennes qui sortent (les numéros du jeu croissent) : une conversation
+    // archivée aujourd'hui le reste demain (15/11/2026 ; avant, le plafond coupait les plus récentes)
+    if (brut && typeof brut === "object") Object.keys(brut).filter(function (k) { return /^\d+$/.test(k) && brut[k] === true; }).sort(function (a, b) { return a - b; }).slice(-max).forEach(function (k) { cible[k] = true; });
   }
   function messageOuvert(boite) {
     var sel = boite.querySelector(".zone_conversation div.conversation.selected"), t = boite.querySelector(".contenu .texte");
@@ -6720,10 +6774,10 @@
     if (bouton.getAttribute("data-confirmer") !== "1") {
       bouton.setAttribute("data-confirmer", "1");
       bouton.textContent = "Vider ? Confirmer";
-      setTimeout(function () { bouton.removeAttribute("data-confirmer"); majOutilsMessage(boite, conv); }, 4000);
+      clearTimeout(bouton.dccDesarme); bouton.dccDesarme = setTimeout(function () { bouton.removeAttribute("data-confirmer"); majOutilsMessage(boite, conv); }, 4000);
       return;
     }
-    bouton.removeAttribute("data-confirmer");
+    clearTimeout(bouton.dccDesarme); bouton.removeAttribute("data-confirmer");
     var sel = boite.querySelector(".zone_conversation div.conversation.selected");
     filVides[conv] = sel ? (sel.id.match(/^convers_(\d+)$/) || [])[1] : undefined;
     delete fil[conv];
@@ -7033,9 +7087,9 @@
   // Depuis la v0.61, dans sa propre fenêtre (plus bas, « Le Courrier en fenêtre »).
   // Archivées (sur cet appareil) : hors de la liste, sauf sous « Archivées » ou si un message non lu y arrive (sourdine à part)
   var magConvArch = magasin("conversationsArchivees"), convArchivees = Object.create(null);
-  chargerDrapeaux(magConvArch.lire(), convArchivees, 500);
+  chargerDrapeaux(magConvArch.lire(), convArchivees, 2000);
   var magConvEp = magasin("conversationsEpinglees"), convEpinglees = Object.create(null);
-  chargerDrapeaux(magConvEp.lire(), convEpinglees, 200);
+  chargerDrapeaux(magConvEp.lire(), convEpinglees, 2000);
   // Les titres entiers des conversations (le jeu les coupe dans la liste, « … ») : retenus quand tu en ouvres une
   // L'apparence de chaque conversation (lot 92) : couleur du canal, tes bulles, fond, entête par défaut ; et le dossier où
   // tu l'as vue (sa couleur par défaut, le nom du canal)
@@ -7149,7 +7203,8 @@
   // - l'envoi met ton texte dans le champ du jeu et appelle son envoi (nav.getMessagerie().sendMessage), puis rouvre la
   //   conversation pour y voir ta réponse ; Entrée va à la ligne, Ctrl Entrée envoie (l'inverse si le réglage dit « Envoie ») ;
   // - « Marquer non lu », « Supprimer » (deux clics) et la fermeture passent par les fonctions du jeu.
-  // Rien ne part tout seul : ni lecture en fond, ni relance à intervalle, ni clic au démarrage.
+  // Rien n'est envoyé tout seul, rien à intervalle, aucun clic au démarrage. Deux lectures se font sans clic : la
+  // conversation ouverte se relit quand le jeu y signale du nouveau, et la liste demande sa suite au défilement.
   var pageWin = typeof unsafeWindow !== "undefined" ? unsafeWindow : window;
   // Par défaut Entrée va à la ligne et Ctrl Entrée envoie ; avec le réglage « Envoie », Entrée envoie (Maj Entrée : une ligne)
   function toucheEnvoiIm(e) {
@@ -7444,6 +7499,7 @@
       var t = "Entête : " + nom + " (action rapide, modèle, signature dans ce menu)";
       if (puce.title !== t) { puce.title = t; puce.setAttribute("aria-label", t); }
     };
+    zone.dccMajEntete = maj;
     // Le menu s'ouvre vers le haut : dans une fenêtre basse, ou dans « Nouveau message » (saisie haut placée, sous
     // le destinataire et le sujet), le bord de la fenêtre (overflow) en coupait le haut (« Sans entête » et les
     // entêtes cachés). Il prend la place réelle : vers le haut s'il y tient, sinon du côté le plus grand (vers le bas,
@@ -8055,6 +8111,9 @@
         e.envoi = null;
         e.nonConfirme = envoi.texte;
         e.nonConfirmeNb = envoi.nb;
+        // Ce texte ne vivait qu'en mémoire : fermer la fenêtre ou recharger la page le perdait. Il est aussi gardé comme
+        // brouillon de la conversation, tant que le jeu n'a pas montré le message (15/11/2026).
+        if (!brouillons[conv]) { brouillons[conv] = { texte: String(envoi.texte).slice(0, 20000), t: Date.now() }; e.brouillonSecours = brouillons[conv].texte; sauverBrouillons(); }
         if (zone.isConnected && zone.value === (envoi.complet || envoi.texte)) zone.value = "";
         // Les invités de cet envoi ne restent pas dans le champ caché du jeu (revue du 27/10, n° 19)
         if (b) cibleReponse(b, "");
@@ -8195,15 +8254,15 @@
     tout.addEventListener("click", function () {
       var b = boiteConv(conv), l = b ? manquantsIm(b, conv) : [];
       if (!l.length) return;
-      if (tout.getAttribute("data-confirmer") !== "1") { tout.setAttribute("data-confirmer", "1"); tout.textContent = "Lire " + nombreFr(l.length) + " messages, un par un ? Confirmer"; setTimeout(function () { tout.removeAttribute("data-confirmer"); planifierIm(conv); }, 4000); return; }
-      tout.removeAttribute("data-confirmer");
+      if (tout.getAttribute("data-confirmer") !== "1") { tout.setAttribute("data-confirmer", "1"); tout.textContent = "Lire " + nombreFr(l.length) + " messages, un par un ? Confirmer"; clearTimeout(tout.dccDesarme); tout.dccDesarme = setTimeout(function () { tout.removeAttribute("data-confirmer"); planifierIm(conv); }, 4000); return; }
+      clearTimeout(tout.dccDesarme); tout.removeAttribute("data-confirmer");
       chargerIm(conv, l.reverse().map(function (m) { return m.id; }));
       fermerMenuIm();
     });
     archiver.addEventListener("click", function () { basculerArchiveConv(conv); majIm(boiteConv(conv) || boite, conv); });
     nonLu.addEventListener("click", function () { var msgr = jeuMessagerie(); if (msgr && typeof msgr.notReadMessage === "function") { nonLuMarqueA = Date.now(); try { msgr.notReadMessage(+conv); } catch (x) { /* le jeu dira */ } } fermerIm(conv, true); });
     suppr.addEventListener("click", function () {
-      if (suppr.getAttribute("data-confirmer") !== "1") { suppr.setAttribute("data-confirmer", "1"); suppr.textContent = "Supprimer ? Confirmer"; setTimeout(function () { suppr.removeAttribute("data-confirmer"); suppr.textContent = "Supprimer la conversation"; }, 4000); return; }
+      if (suppr.getAttribute("data-confirmer") !== "1") { suppr.setAttribute("data-confirmer", "1"); suppr.textContent = "Supprimer ? Confirmer"; clearTimeout(suppr.dccDesarme); suppr.dccDesarme = setTimeout(function () { suppr.removeAttribute("data-confirmer"); suppr.textContent = "Supprimer la conversation"; }, 4000); return; }
       var msgr = jeuMessagerie();
       w.style.zIndex = String(Z.fenetres + 1);
       if (msgr && typeof msgr.deleteMessage === "function") { try { msgr.deleteMessage(+conv); } catch (x) { /* le jeu dira */ } }
@@ -8618,7 +8677,12 @@
       if (conv === "nouveau") return;
       var w = fenetresIm[conv], b = brouillons[conv], e = etatConv(conv);
       // La réponse non confirmée est arrivée dans la conversation (rouverte depuis) : elle était bien partie
-      if (e.nonConfirme && lignesMoi(boiteConv(conv)) > e.nonConfirmeNb) { e.nonConfirme = null; e.envoyeA = Date.now(); }
+      if (e.nonConfirme && lignesMoi(boiteConv(conv)) > e.nonConfirmeNb) {
+        e.nonConfirme = null; e.envoyeA = Date.now();
+        // le message est bien arrivé : le brouillon de secours n'a plus lieu d'être
+        if (e.brouillonSecours && brouillons[conv] && brouillons[conv].texte === e.brouillonSecours) { oublierBrouillon(conv); sauverBrouillons(); }
+        e.brouillonSecours = null;
+      }
       var rm = w.querySelector(".dcc-im-remettre");
       if (rm && rm.hidden === !!e.nonConfirme) rm.hidden = !e.nonConfirme;
       var t = e.envoi ? "Envoi en cours…" : e.nonConfirme ? "Envoi non confirmé par le jeu" : e.envoyeA && Date.now() - e.envoyeA < 60000 ? "Envoyé · " + dateCourte(e.envoyeA).slice(6) : b ? "Brouillon gardé · " + dateCourte(b.t).slice(6) : "";
@@ -11184,9 +11248,12 @@
     var t = e.composedPath ? e.composedPath()[0] : e.target;
     if (t && t.closest && t.closest("input, textarea, select, [contenteditable]:not([contenteditable='false'])")) return;
     var box = (t && t.closest && t.closest("#zone_dataBox > .dataBox")) || document.querySelector("#zone_dataBox > .dataBox.focused:not([data-dcc-reduite])");
-    if (!box || !box.getClientRects().length) return;
+    // Sans fenêtre à déplacer, Alt + ← et Alt + → restaient au navigateur : « page précédente », et l'on quittait le
+    // jeu. Hors d'un champ, ces deux touches sont retenues dans tous les cas (15/11/2026).
+    var retenir = function () { if (e.key === "ArrowLeft" || e.key === "ArrowRight") e.preventDefault(); };
+    if (!box || !box.getClientRects().length) { retenir(); return; }
     var x = parseFloat(box.style.left), y = parseFloat(box.style.top);
-    if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+    if (!Number.isFinite(x) || !Number.isFinite(y)) { retenir(); return; }
     e.preventDefault();
     e.stopPropagation();
     var r = box.getBoundingClientRect(), k = box.offsetWidth ? r.width / box.offsetWidth : 1, pas = (e.shiftKey ? 1 : 10) / (k || 1);
@@ -11550,7 +11617,9 @@
       racine.removeAttribute("data-dcc-lieu"); racine.removeAttribute("data-dcc-fond");
       if (brume) brume.remove();
       if (hoteDecor) hoteDecor.remove();
-      Object.keys(moteursDecor).forEach(function (k) { moteursDecor[k].arreter(); });
+      // Le canevas part avec son hôte : les moteurs qui dessinaient dessus sont oubliés avec lui. Gardés, ils restaient
+      // liés à l'ancien canevas, et au retour en Maquette les lieux déjà vus n'avaient plus de fond (15/11/2026).
+      Object.keys(moteursDecor).forEach(function (k) { moteursDecor[k].arreter(); if (moteursDecor[k].oublier) moteursDecor[k].oublier(); delete moteursDecor[k]; });
       sceneDecor = null; etatDecor = "";
       return;
     }
@@ -12323,6 +12392,8 @@
     if (document.getElementById("liste_messages")) f("Copier", "Diagnostic de la liste des conversations", "si les anciennes ne se chargent pas (sans titre ni nom)", diagListeMessages);
     f("Réglages", "Exporter mes réglages et le Courrier", "réglages, modèles, fil, épingles, archives, brouillons : dans le presse-papiers", exporterReglages);
     f("Réglages", "Importer des réglages", "coller un export", function () { ouvrirPalette(true, false, true); });
+    var avantImp = magAvantImport.lire();
+    if (avantImp && typeof avantImp.texte === "string" && Number.isFinite(avantImp.t)) f("Réglages", "Annuler le dernier import", "remettre les réglages et le Courrier d'avant l'import du " + new Date(avantImp.t).toLocaleDateString("fr-FR"), annulerImport);
     if (pupitre()) {
       f("Apparence", apparence() === "origine" ? "Apparence Maquette" : "Apparence du jeu d'origine", apparence() === "origine" ? "colonnes, carte cadrée, Courrier en fenêtre" : "l'écran du jeu tel quel",
         function () { choisirApparence(apparence() === "origine" ? "maquette" : "origine"); });
@@ -12458,7 +12529,7 @@
             e.preventDefault();
             var refus = importerReglages(zoneImp.value);
             erreurImp.textContent = refus;
-            if (!refus) { ouvrirPalette(false); annoncerPupitre("Réglages importés"); }
+            if (!refus) { ouvrirPalette(false); annoncerPupitre("Réglages importés · l'état d'avant est gardé : Ctrl K › « Annuler le dernier import »"); }
           }
           return;
         }
@@ -12601,21 +12672,22 @@
   // le texte va dans ton presse-papiers, rien n'est envoyé.
   // Lot 125, K4 (bug G1 de l'audit du 05/11) : aussi tes entêtes RP et ta signature, la dernière entête choisie, les outils
   // RP ouverts, l'apparence, le titre entier, le dossier et le dernier mot de chaque conversation
-  function exporterReglages() {
+  function exporterReglages() { copierTexte(texteExport(), "Sauvegarde (réglages et Courrier)"); }
+  function texteExport() {
     var ent = magEntetes.lire(), sig = magSignature.lire(), der = magDerniereEntete.lire();
-    copierTexte(JSON.stringify({ app: "DC Confort", version: VERSION, date: new Date().toISOString(), reglages: reglages, couleurs: couleursNoms,
+    return JSON.stringify({ app: "DC Confort", version: VERSION, date: new Date().toISOString(), reglages: reglages, couleurs: couleursNoms,
       narration: { propres: narration.propres, actives: narration.actives }, modeles: modelesTexte,
       courrier: { fil: fil, epingles: epingles, sourdines: sourdines, epinglees: convEpinglees, archivees: convArchivees, vus: pairesVus(), brouillons: brouillons, fenetre: placeCourrier, alertes: alertesBureau,
         entetes: Array.isArray(ent) ? ent : null, signature: typeof sig === "string" ? sig : "", derniereEntete: typeof der === "string" ? der : "", outilsRp: magOutilsRp.lire() === true,
-        themes: themesConv, titres: titresConv, dossiers: dossiersConvMem, dernierMot: dernierMot } }), "Sauvegarde (réglages et Courrier)");
+        themes: themesConv, titres: titresConv, dossiers: dossiersConvMem, dernierMot: dernierMot } });
   }
   function importerCourrier(c) {
     if (!c || typeof c !== "object") return;
     if (c.fil && typeof c.fil === "object") { fil = lireFil(c.fil); magFil.ecrire(fil); }
     if (c.epingles && typeof c.epingles === "object") { chargerEpingles(c.epingles); magEpingles.ecrire(epingles); }
-    if (c.sourdines && typeof c.sourdines === "object") { chargerDrapeaux(c.sourdines, sourdines, 500); magSourdines.ecrire(sourdines); }
-    if (c.epinglees && typeof c.epinglees === "object") { chargerDrapeaux(c.epinglees, convEpinglees, 200); magConvEp.ecrire(convEpinglees); }
-    if (c.archivees && typeof c.archivees === "object") { chargerDrapeaux(c.archivees, convArchivees, 500); magConvArch.ecrire(convArchivees); }
+    if (c.sourdines && typeof c.sourdines === "object") { chargerDrapeaux(c.sourdines, sourdines, 2000); magSourdines.ecrire(sourdines); }
+    if (c.epinglees && typeof c.epinglees === "object") { chargerDrapeaux(c.epinglees, convEpinglees, 2000); magConvEp.ecrire(convEpinglees); }
+    if (c.archivees && typeof c.archivees === "object") { chargerDrapeaux(c.archivees, convArchivees, 2000); magConvArch.ecrire(convArchivees); }
     if (c.vus && typeof c.vus === "object") { chargerVus(c.vus); magFilVus.ecrire(pairesVus()); }
     if (c.brouillons && typeof c.brouillons === "object") { chargerBrouillons(c.brouillons); magBrouillons.ecrire(brouillons); }
     if (c.fenetre && typeof c.fenetre === "object" && ["x", "y", "w", "h"].every(function (k) { return Number.isFinite(c.fenetre[k]); })) { placeCourrier = { x: c.fenetre.x, y: c.fenetre.y, w: c.fenetre.w, h: c.fenetre.h }; magCourrierFen.ecrire(placeCourrier); }
@@ -12631,10 +12703,22 @@
     Object.keys(etatsConv).forEach(function (k) { etatsConv[k].sig = ""; });
     etape("messagerie", majMessagerie);
   }
-  function importerReglages(texte) {
+  var magAvantImport = magasin("avantImport");
+  function annulerImport() {
+    var a = magAvantImport.lire();
+    if (!a || typeof a.texte !== "string") { annoncerPupitre("Aucun import à annuler"); return; }
+    var refus = importerReglages(a.texte, true);
+    if (refus) { annoncerPupitre("L'état d'avant n'a pas pu être remis : " + refus); return; }
+    magAvantImport.ecrire(null);
+    annoncerPupitre("Import annulé : réglages et Courrier comme avant");
+  }
+  function importerReglages(texte, sansFilet) {
     var d;
-    try { if (String(texte).length > 300000000) throw new Error("trop long"); d = JSON.parse(texte); } catch (e) { return "Texte illisible : colle l'export entier, tel qu'il a été copié."; }
+    // 20 millions de caractères : quatre fois le plus gros export possible (le fil gardé plafonne à 5 Mo)
+    try { if (String(texte).length > 20000000) throw new Error("trop long"); d = JSON.parse(texte); } catch (e) { return "Texte illisible : colle l'export entier, tel qu'il a été copié."; }
     if (!d || d.app !== "DC Confort" || !d.reglages || typeof d.reglages !== "object") return "Ce n'est pas un export de DC Confort.";
+    // Filet : l'état d'avant est gardé (un seul, le dernier), pour « Annuler le dernier import » dans la palette
+    if (!sansFilet) { try { magAvantImport.ecrire({ t: Date.now(), texte: texteExport() }); } catch (e) {} }
     reglages = nettoyer(d.reglages);
     stockage.ecrire(reglages);
     if (d.couleurs && typeof d.couleurs === "object") { couleursNoms = nettoyerCouleurs(d.couleurs); couleursStock.ecrire(couleursNoms); majFeuille(); }
@@ -13328,9 +13412,17 @@
       corps.appendChild(ul);
     }
     // Le focus reste sur le bouton qu'on vient d'utiliser
-    Array.prototype.forEach.call(corps.querySelectorAll("button, input, summary"), function (b, i) { b.dataset.f = String(i); });
+    // Le repère est le nom de la commande, pas son rang : une liste déroulante garde le focus après un choix, et un
+    // réglage qui ajoute ou retire des commandes n'envoie plus le focus sur une voisine (15/11/2026)
+    var rangsF = {};
+    Array.prototype.forEach.call(corps.querySelectorAll("button, input, select, summary"), function (b) {
+      if (b.dataset.f) return;
+      var etiq = b.closest("label"), nomF = b.tagName + ":" + (b.getAttribute("aria-label") || b.title || (b.tagName === "SELECT" || b.tagName === "INPUT" ? (etiq ? etiq.textContent : b.name || b.type) : b.textContent) || "").replace(/s+/g, " ").trim().slice(0, 48);
+      rangsF[nomF] = (rangsF[nomF] || 0) + 1;
+      b.dataset.f = nomF + "#" + rangsF[nomF];
+    });
     if (focusCle) {
-      var g = ombre.querySelector('[data-f="' + focusCle + '"]');
+      var g = Array.prototype.filter.call(ombre.querySelectorAll("[data-f]"), function (x) { return x.dataset.f === focusCle; })[0];
       if (g) g.focus();
       if (g && curseur && typeof g.selectionStart === "number") { g.setSelectionRange(curseur[0], curseur[1]); g.scrollTop = curseur[2]; }
     }
