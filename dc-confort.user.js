@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DC Confort
 // @namespace    deck.local
-// @version      0.128.0
+// @version      0.130.0
 // @updateURL    https://raw.githubusercontent.com/Shinsudo/dreadcast-scripts/main/dc-confort.meta.js
 // @downloadURL  https://raw.githubusercontent.com/Shinsudo/dreadcast-scripts/main/dc-confort.user.js
 // @description  Rend l'écran de Dreadcast et son forum plus lisibles. Le Courrier, façon DDM V2, lit les messages auprès du jeu et envoie tes réponses, à ta demande seulement.
@@ -48,7 +48,7 @@
    Repères du jeu : DOM-JEU.md (relevés du 23 et du 24/10/2026). */
 (function () {
   "use strict";
-  var VERSION = "0.128.0";
+  var VERSION = "0.130.0";
   var racine = document.documentElement;
   // Les éléments que DC Confort crée : un changement fait dedans ne relance pas l'observateur (audit de phase 6, n° 14)
   var nos = typeof WeakSet === "function" ? new WeakSet() : null;
@@ -2689,6 +2689,23 @@
     "html.dcc-maquette .dcc-jauge .a-sante { stroke: var(--dcc-ok); }",
     "html.dcc-maquette .dcc-jauge.dcc-touchee .a-sante { stroke: var(--dcc-alerte); }",
     "html.dcc-maquette .dcc-jauge.dcc-critique .a-sante { stroke: var(--dcc-danger); }",
+    // Lot E (16/11/2026). Jauge pleine atténuée : santé ou forme à 100 %, l'anneau et le chiffre pâlissent ; ils reprennent
+    // leur éclat sous 100 % et en combat (montrer moins quand tout va bien)
+    "html.dcc-maquette:not(.dcc-combat) .dcc-jauge.dcc-plein-sante .a-sante, html.dcc-maquette:not(.dcc-combat) .dcc-jauge.dcc-plein-forme .a-forme { opacity: .42; }",
+    "html.dcc-maquette:not(.dcc-combat) :is(#barre_sante, #barre_forme)[data-dcc-plein] > .dcc-val { opacity: .62; }",
+    // Santé basse : sous le quart, un liseré rouge sourd sur le bord de la carte, fixe (aucune pulsation) ; le mot
+    // « critique » est déjà écrit à côté de la santé
+    "html.dcc-maquette.dcc-sante-basse #zone_carte::after { content: ''; position: absolute; inset: 0; z-index: 130; pointer-events: none;",
+    "  box-shadow: inset 0 0 0 2px rgb(var(--dcc-danger-rvb) / .5), inset 0 0 28px rgb(var(--dcc-danger-rvb) / .16); }",
+    // Le carton de lieu : à l'arrivée, le nom du lieu tel que le jeu l'écrit, l'adresse dessous, un filet à la lumière du
+    // lieu ; posé sur le bas de la carte, il ne prend aucun clic et s'efface seul
+    ".dcc-carton-lieu { display: none; }",
+    "html.dcc-maquette #zone_carte > .dcc-carton-lieu { display: block; position: absolute; left: 0; bottom: 18px; z-index: 131; box-sizing: border-box; max-width: 100%; padding: 8px 56px 8px 16px; pointer-events: none;",
+    "  background: linear-gradient(90deg, rgb(5 12 18 / .86), rgb(5 12 18 / .6) 62%, transparent); border-left: 2px solid var(--dcc-lieu-lum, var(--dcc-acc)); }",
+    "html.dcc-maquette #zone_carte > .dcc-carton-lieu > b { display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font: 700 20px/1.15 var(--dcc-chiffres); letter-spacing: .16em; text-transform: uppercase; color: var(--dcc-t1); }",
+    "html.dcc-maquette #zone_carte > .dcc-carton-lieu > span { display: block; margin-top: 4px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font: 600 12px/1.3 var(--dcc-chiffres); letter-spacing: .1em; color: var(--dcc-t2); }",
+    // « En scène » : un point à l'accent sur la cloche, à gauche de la lune de « Ne pas déranger »
+    "html.dcc-en-scene .dcc-cloche { position: relative; } html.dcc-en-scene .dcc-cloche::before { content: ''; position: absolute; left: -5px; top: -2px; width: 6px; height: 6px; border-radius: 50%; background: var(--dcc-acc); }",
     // La description du lieu sur deux lignes au plus, entière au survol (title) ; seulement un texte : dans la gestion d'un
     // cercle, ce bloc porte la présentation, son formulaire et ses options, qui étaient coupés (ta capture du 27/10/2026)
     "html.dcc-maquette #informations_lieu .description:not(:has(" + COMMANDES_LIEU + ")) { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }",
@@ -3987,6 +4004,18 @@
     ".dcc-touches { position: fixed; inset: 0; z-index: calc(var(--dcc-z-palette) + 200); display: grid; place-items: center; background: rgb(4 8 14 / .55); }",
     ".dcc-touches-carte { width: min(520px, calc(100vw - 32px)); padding: 16px 18px; border-radius: 12px; background: var(--dcc-fond); color: var(--dcc-t1); box-shadow: inset 0 0 0 1px rgb(var(--dcc-filet-rvb) / .3), 0 18px 50px rgb(0 0 0 / .7); font: 13px/1.45 'Segoe UI', Arial, sans-serif; }",
     ".dcc-touches h2 { margin: 0 0 10px; font: 600 16px Bahnschrift, 'Segoe UI', sans-serif; }",
+    // La recette en jeu (lot C, 16/11/2026) : la même fiche, plus large, avec sa liste qui défile
+    ".dcc-recette .dcc-touches-carte { display: flex; flex-direction: column; width: min(680px, calc(100vw - 32px)); max-height: calc(100vh - 64px); }",
+    ".dcc-recette h2 { display: flex; align-items: baseline; gap: 12px; } .dcc-recette h2 > span { font: 400 12px 'Segoe UI', sans-serif; color: var(--dcc-t3); }",
+    ".dcc-recette-liste { flex: 1; min-height: 0; overflow-y: auto; margin: 0 0 12px; padding: 0 4px 0 0; }",
+    ".dcc-recette-liste h3 { position: sticky; top: 0; margin: 0; padding: 8px 0 4px; background: var(--dcc-fond); font: 600 12px Bahnschrift, 'Segoe UI', sans-serif; letter-spacing: .08em; color: rgb(var(--dcc-acc-rvb)); }",
+    ".dcc-recette-liste h3 > span { font-weight: 400; letter-spacing: 0; color: var(--dcc-t3); }",
+    ".dcc-recette-liste ul { list-style: none; margin: 0; padding: 0; }",
+    ".dcc-recette-liste li { display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 8px; padding: 4px 0; border-top: 1px solid rgb(var(--dcc-filet-rvb) / .12); color: var(--dcc-t2); }",
+    ".dcc-recette-liste li[data-etat] { color: var(--dcc-t3); }",
+    ".dcc-recette-liste :is(.dcc-k, #dcc-k).dcc-k.dcc-rc-ok[aria-pressed='true'] { border-color: var(--dcc-ok); color: var(--dcc-ok); }",
+    ".dcc-recette-liste :is(.dcc-k, #dcc-k).dcc-k.dcc-rc-ko[aria-pressed='true'] { border-color: var(--dcc-danger); color: var(--dcc-danger); }",
+    ".dcc-recette-pied { display: flex; gap: 8px; justify-content: flex-end; }",
     ".dcc-touches dl { display: grid; grid-template-columns: max-content 1fr; gap: 6px 14px; margin: 0 0 14px; }",
     ".dcc-touches dt { color: rgb(var(--dcc-acc-rvb)); font: 600 12px ui-monospace, Consolas, monospace; white-space: nowrap; } .dcc-touches dd { margin: 0; color: var(--dcc-t2); }",
     "html.dcc-maquette:not(.dcc-cede-fouille) #action_actuelle .dcc-fouille { display: inline-block; margin-left: 6px; padding: 0 8px; border-radius: 999px; background: rgb(var(--dcc-acc-rvb) / .14);",
@@ -4285,7 +4314,31 @@
     if (mouvementPermis() && typeof document.startViewTransition === "function") { try { fonduVue(); return; } catch (e) { /* sans fondu */ } }
     appliquer();
   }
-  // Focus (Ctrl + point) : la carte et le chat seuls, dans l'agencement « Maquette »
+  // « En scène » (lot E, 16/11/2026, Ctrl + point) : un seul interrupteur pour le temps d'une scène. Il allume ensemble le
+  // Focus (avec la Maquette), « Ne pas déranger » et les noms de tous sur la carte ; en le coupant, chacun des trois
+  // retrouve la valeur qu'il avait avant. Les trois réglages restent utilisables seuls.
+  var magScene = magasin("enScene"), sceneAvant = (function (v) { return v && typeof v === "object" ? { focus: !!v.focus, npd: !!v.npd, nomsCarte: v.nomsCarte === "tous" ? "tous" : "parlent" } : null; })(magScene.lire());
+  function enScene() { return !!sceneAvant; }
+  function basculerScene() {
+    if (!sceneAvant) {
+      sceneAvant = { focus: !!reglages.focus, npd: !!npd, nomsCarte: reglages.nomsCarte };
+      magScene.ecrire(sceneAvant);
+      if (!npd) basculerNPD();
+      reglages.nomsCarte = "tous";
+      changer("focus", racine.classList.contains("dcc-maquette") ? true : reglages.focus);
+      annoncerPupitre("En scène : la carte et le chat, les noms de tous, notifications rangées sans son");
+    } else {
+      var av = sceneAvant;
+      sceneAvant = null;
+      magScene.ecrire(null);
+      if (npd !== av.npd) basculerNPD();
+      reglages.nomsCarte = av.nomsCarte;
+      changer("focus", av.focus);
+      annoncerPupitre("Fin de scène : tes réglages d'avant sont revenus");
+    }
+    racine.classList.toggle("dcc-en-scene", enScene());
+  }
+  // Focus : la carte et le chat seuls, dans l'agencement « Maquette »
   function basculerFocus() {
     if (!racine.classList.contains("dcc-maquette")) { annoncerPupitre("Focus : avec la Maquette seulement (Réglages › Apparence : Maquette)"); return; }
     changer("focus", !reglages.focus);
@@ -10814,7 +10867,7 @@
   function majPortrait() {
     var ok = racine.classList.contains("dcc-refonte") && REPERES_PORTRAIT.every(function (sel) { return document.querySelector(sel); });
     if (racine.classList.contains("dcc-portrait") !== ok) racine.classList.toggle("dcc-portrait", ok);
-    if (!ok) { if (suiviFiche) { suiviFiche.disconnect(); suiviFiche = null; } return; }
+    if (!ok) { if (suiviFiche) { suiviFiche.disconnect(); suiviFiche = null; } if (racine.classList.contains("dcc-sante-basse")) racine.classList.remove("dcc-sante-basse"); return; }
     var av = document.getElementById("img_avatar"), j = av.querySelector(":scope > .dcc-jauge");
     if (!j) {
       j = el("div", "dcc-jauge");
@@ -10843,6 +10896,17 @@
     var ps = largeurBarre("barre_sante"), etatSante = !pupitre() ? "" : ps < 25 ? "critique" : ps < 50 ? "touchée" : racine.classList.contains("dcc-maquette") ? "indemne" : "";
     j.classList.toggle("dcc-touchee", pupitre() && ps < 50 && ps >= 25);
     j.classList.toggle("dcc-critique", pupitre() && ps < 25);
+    // Lot E : jauge pleine atténuée, et santé basse dite aussi sur le bord de la carte. Une barre illisible (largeurBarre
+    // rend alors 0) ne compte ni comme pleine ni comme basse.
+    var pf = largeurBarre("barre_forme"), santeLue = !!document.querySelector("#barre_sante .barre_etat") || !!valeurCombat("sante");
+    if (j.classList.contains("dcc-plein-sante") !== (pupitre() && ps >= 100)) j.classList.toggle("dcc-plein-sante", pupitre() && ps >= 100);
+    if (j.classList.contains("dcc-plein-forme") !== (pupitre() && pf >= 100)) j.classList.toggle("dcc-plein-forme", pupitre() && pf >= 100);
+    [["barre_sante", ps], ["barre_forme", pf]].forEach(function (d) {
+      var b = document.getElementById(d[0]), plein = pupitre() && d[1] >= 100;
+      if (b && b.hasAttribute("data-dcc-plein") !== plein) b.toggleAttribute("data-dcc-plein", plein);
+    });
+    var basse = pupitre() && santeLue && ps < 25;
+    if (racine.classList.contains("dcc-sante-basse") !== basse) racine.classList.toggle("dcc-sante-basse", basse);
     [["barre_sante", "Santé"], ["barre_forme", "Forme"]].forEach(function (d) {
       var v = valeursBarre(d[0]), mot = d[0] === "barre_sante" && etatSante ? " · " + etatSante : "";
       if (v) valeurEnClair(d[0], d[1], v[0], " / " + v[1] + mot); else valeurEnClair(d[0], d[1], Math.round(largeurBarre(d[0])) + " %", mot);
@@ -10894,6 +10958,7 @@
     etape("relations", majRelationsPions);
     etape("lieu", majDescriptionLieu);
     etape("arrivee", majArrivee);
+    etape("carton de lieu", majCartonLieu);
     etape("ambiance", majAmbiance);
     etape("reduites", majReduites);
     // (en dernier : le compte des pièces usées se lit sur les marques que majUsure vient de poser)
@@ -10918,6 +10983,41 @@
     // Avec l'ambiance de lieu seulement (coupée par défaut) : seul, ce son sonnait comme une notification (v0.109.2)
     if (sorteLieuVue && s !== sorteLieuVue && sons && reglages.ambiance === "douce") sons.jouer("lieu");
     sorteLieuVue = s;
+  }
+  // Le carton de lieu (lot E, 16/11/2026) : quand le nom du lieu change (#lieu_actuel .titre1, tel que le jeu l'écrit), il
+  // s'inscrit une fois sur le bas de la carte avec l'adresse, puis s'efface. Pas au chargement de la page, pas en combat ni
+  // sous « Mouvement : aucun » (mouvementPermis), et pas plus d'un toutes les 8 secondes : marcher vite n'en fait pas une
+  // suite. Rien n'est inventé ni cliqué ; il ne prend aucun clic.
+  var lieuVu = null, cartonA = 0, CARTON_MS = 2200, CARTON_ECART_MS = 8000;
+  function majCartonLieu() {
+    if (!pupitre() || !racine.classList.contains("dcc-maquette")) { lieuVu = null; return; }
+    var l = document.getElementById("lieu_actuel"), t1 = l && l.querySelector(".titre1"), nom = t1 ? t1.textContent.replace(/\s+/g, " ").trim() : "";
+    if (!nom || nom === lieuVu) return;
+    var premier = lieuVu === null;
+    lieuVu = nom;
+    var zc = document.getElementById("zone_carte");
+    if (premier || !zc || !mouvementPermis() || Date.now() - cartonA < CARTON_ECART_MS) return;
+    cartonA = Date.now();
+    var vieux = zc.querySelector(":scope > .dcc-carton-lieu"), t2 = l.querySelector(".titre2"), adresse = t2 ? t2.textContent.replace(/\s+/g, " ").trim() : "";
+    if (vieux) vieux.remove();
+    var c = el("div", "dcc-carton-lieu");
+    c.setAttribute("aria-hidden", "true");
+    c.appendChild(el("b", null, nom.slice(0, 60)));
+    if (adresse) c.appendChild(el("span", null, adresse.slice(0, 80)));
+    // Posé dans la partie de la carte qui se voit : quand la colonne du centre rogne la carte (carte plus large qu'elle),
+    // son bord gauche est hors champ, et le carton avec lui
+    var zr = zc.getBoundingClientRect(), col = document.getElementById("zone_centre"), cr = col ? col.getBoundingClientRect() : null, ech = zc.offsetWidth ? zr.width / zc.offsetWidth : 1;
+    var gauche = Math.max(zr.left, cr ? cr.left : 0, 0), droite = Math.min(zr.right, cr ? cr.right : window.innerWidth, window.innerWidth), bas = Math.min(zr.bottom, cr ? cr.bottom : window.innerHeight, window.innerHeight);
+    if (!(ech > 0) || droite - gauche < 120) return;
+    c.style.left = Math.round((gauche - zr.left) / ech) + "px";
+    c.style.maxWidth = Math.round((droite - gauche) / ech) + "px";
+    c.style.bottom = Math.round((zr.bottom - bas) / ech) + 18 + "px";
+    zc.appendChild(c);
+    var finir = function () { c.remove(); };
+    var a = animer(c, [{ opacity: 0, translate: "0 6px", offset: 0 }, { opacity: 1, translate: "0 0", offset: .12 }, { opacity: 1, translate: "0 0", offset: .78 }, { opacity: 0, translate: "0 0", offset: 1 }], CARTON_MS);
+    if (!a) { finir(); return; }
+    a.onfinish = finir; a.oncancel = finir;
+    setTimeout(finir, CARTON_MS + 400);
   }
   // L'ambiance du lieu (§14, réglage « Ambiance de lieu », coupée par défaut) : jouée par le module des sons, à 10 % du
   // volume ; rien en combat, sons coupés, ni dans un lieu sans dessin (vide, mort)
@@ -11548,7 +11648,7 @@
   // La barre d'actions de la maquette : l'action en cours dessinée en tête de la barre (sa place relue ici), les outils au bout.
   // Seulement quand la barre se voit (hors combat) ; sinon l'action en cours reste dans la fiche.
   var outilsBarre = null, miniMoi = null, magVisite = magasin("visiteMaquette"), visite = null;
-  var GESTES_VISITE = [["Ctrl K", "la palette : tout DC Confort, et « aller à » un bouton du jeu"], ["Ctrl + point", "Focus : la carte et le chat seuls"],
+  var GESTES_VISITE = [["Ctrl K", "la palette : tout DC Confort, et « aller à » un bouton du jeu"], ["Ctrl + point", "En scène : carte et chat, au calme"],
     ["Alt + flèches", "déplacer une fenêtre du jeu ; glissée au bord droit, elle s'y range"], ["Courrier", "chaque conversation dans sa fenêtre : Ctrl+Entrée envoie, la loupe cherche"],
     ["Réglages", "Apparence : la Maquette, ou le jeu d'origine"]];
   function majVisite(forcer) {
@@ -11616,7 +11716,7 @@
       outilsBarre = el("div", "dcc-barre-outils");
       outilsBarre.setAttribute("role", "toolbar");
       outilsBarre.setAttribute("aria-label", "DC Confort");
-      [["commande", "Palette de DC Confort (Ctrl K)", function () { ouvrirPalette(true); }], ["colonnes", "Focus : la carte et le chat seuls (Ctrl + point)", basculerFocus],
+      [["commande", "Palette de DC Confort (Ctrl K)", function () { ouvrirPalette(true); }], ["colonnes", "Focus : la carte et le chat seuls", basculerFocus],
         ["curseurs", "Réglages de DC Confort", function () { ouvrirPanneau(true); }]].forEach(function (d) {
         var b = k(el("button", "dcc-barre-" + d[0]), "icone");
         b.type = "button"; b.title = d[1]; b.setAttribute("aria-label", d[1]);
@@ -12423,6 +12523,7 @@
     f("DC Confort", "Réglages de DC Confort", "Alt+Maj+C", function () { ouvrirPanneau(true); });
     f("DC Confort", "Historique du chat", "7 jours, recherche", function () { ouvrirHistorique(true); });
     f("Aide", "Raccourcis clavier", "palette, fenêtres, chat, réglages", ouvrirTouches);
+    f("Aide", "Points à vérifier en jeu", resteRecette() ? resteRecette() + " pas encore vus, version par version" : "tout a été vu", ouvrirRecette);
     f("Courrier", alertesBureau ? "Couper les alertes sur le bureau" : "Alertes sur le bureau", alertesBureau ? "messages et mentions, onglet caché" : "un message ou ton nom cité, quand l'onglet du jeu est caché", basculerAlertes);
     f("Notifications", npd ? "Fin de « Ne pas déranger »" : "Ne pas déranger", npd ? "notifications et sons ordinaires" : "notifications rangées sans son, sauf combat ; sons qui te concernent seuls", basculerNPD);
     var deckOuvert = Array.prototype.filter.call(document.querySelectorAll("#zone_dataBox > [id^='db_deck_']"), visible)[0];
@@ -12443,7 +12544,8 @@
       f("Apparence", apparence() === "origine" ? "Apparence Maquette" : "Apparence du jeu d'origine", apparence() === "origine" ? "colonnes, carte cadrée, Courrier en fenêtre" : "l'écran du jeu tel quel",
         function () { choisirApparence(apparence() === "origine" ? "maquette" : "origine"); });
       if (racine.classList.contains("dcc-maquette")) f("Maquette", "Revoir la visite de la Maquette", "les cinq gestes", function () { majVisite(true); });
-      if (racine.classList.contains("dcc-maquette")) f("Maquette", reglages.focus ? "Couper le Focus" : "Mode Focus", reglages.focus ? "les trois colonnes (Ctrl + point)" : "la carte et le chat seuls (Ctrl + point)", basculerFocus);
+      if (racine.classList.contains("dcc-maquette")) f("Maquette", reglages.focus ? "Couper le Focus" : "Mode Focus", reglages.focus ? "les trois colonnes" : "la carte et le chat seuls", basculerFocus);
+      f("Maquette", enScene() ? "Fin de scène" : "En scène", enScene() ? "tes réglages d'avant reviennent (Ctrl + point)" : "Focus, Ne pas déranger et les noms de tous, d'un geste (Ctrl + point)", basculerScene);
       if (reglages.sonsChat) f("Ambiance", reglages.ambiance === "douce" ? "Couper l'ambiance de lieu" : "Ambiance de lieu douce", reglages.ambiance === "douce" ? "" : "pluie, ventilation, machines, très bas",
         function () { changer("ambiance", reglages.ambiance === "douce" ? "coupee" : "douce"); });
       // Les fenêtres du jeu : rétablir une fenêtre réduite, ou les réduire toutes
@@ -12609,7 +12711,7 @@
   }
   // Les raccourcis clavier de DC Confort, en une fiche (palette, « Raccourcis clavier ») ; Échap ou un clic à côté la ferme
   var ficheTouches = null;
-  var TOUCHES = [["Ctrl K", "Palette : chercher une action, une fenêtre, un réglage"], ["Alt Maj C", "Réglages de DC Confort"],
+  var TOUCHES = [["Ctrl K", "Palette : chercher une action, une fenêtre, un réglage"], ["Alt Maj C", "Réglages de DC Confort"], ["Ctrl + point", "En scène : Focus, Ne pas déranger et noms de tous ; le refaire rend tes réglages"],
     ["Alt ← ↑ → ↓", "Déplacer la fenêtre active de 10 px (Maj : 1 px)"], ["Double-clic sur un en-tête", "Réduire la fenêtre (barre « Réduites » en bas)"],
     ["Échap", "Fermer la palette ou le panneau, annuler un glisser de fenêtre"], ["/ puis un nom, Tab", "Dans le chat : insérer un de tes modèles"],
     ["*sourit*", "Dans une réplique : devient une action"], ["Ctrl+Entrée", "Valider un import de réglages"]];
@@ -12630,6 +12732,111 @@
     carte.append(dl, fermer);
     ficheTouches.appendChild(carte);
     document.body.appendChild(ficheTouches);
+    fermer.focus();
+  }
+  // ---------- La recette en jeu (lot C, 16/11/2026 ; palette, « Points à vérifier en jeu ») ----------
+  // Ce qui a été publié sans avoir été vu en jeu, version par version. Pour chaque point : « vu, c'est bon » ou « ça cloche » ;
+  // « Copier le compte rendu » en fait un texte à coller. Rien n'est testé à ta place et rien ne paraît hors de cette fiche.
+  // Un point reste tant qu'il n'est pas retiré de cette liste par une version suivante ; ses réponses sont gardées par numéro.
+  var RECETTE = [
+    ["0.129.0", "Ambiance", [
+      ["129-carton", "En entrant dans un lieu, son nom s'inscrit 2 secondes sur le bas de la carte, sans gêner"],
+      ["129-carton-rue", "En marchant dans la rue, le carton ne revient pas à chaque pas"],
+      ["129-sante", "Santé sous 25 % : un liseré rouge fixe sur le bord de la carte"],
+      ["129-plein", "Santé ou forme à 100 % : l'anneau et le chiffre sont pâles, mais lisibles"],
+      ["129-scene", "Ctrl + point : Focus, Ne pas déranger et noms de tous ; le refaire rend tes réglages"]]],
+    ["0.128.0", "Vitesse", [
+      ["128-couleur", "Une couleur choisie dans la fiche d'un nom : il la prend dans le chat"],
+      ["128-recherche", "Recherche du Courrier : les messages trouvés arrivent un court instant après ta dernière touche"]]],
+    ["0.127.0", "Fiabilité", [
+      ["127-apercu", "Chat : « *sourit* » montre la ligne « Partira ainsi » au-dessus du champ, sans rien couvrir"],
+      ["127-alt", "Alt + ← sans fenêtre du jeu choisie : la page ne revient pas en arrière"],
+      ["127-refus", "Un envoi que le jeu refuse : ta phrase d'origine revient dans le champ"]]],
+    ["0.126.0", "Sons", [
+      ["126-chat", "Une réplique dans le chat, onglet en arrière-plan : un souffle, pas une note"],
+      ["126-un", "Deux événements coup sur coup : un seul son"],
+      ["126-vol", "Au premier vol subi : le son « vol » sonne, même sous Ne pas déranger"]]],
+    ["0.125", "Courrier et carte", [
+      ["125-soin", "Icône de soin d'un pion : une croix pleine"],
+      ["125-nouveau", "« Nouveau message » : le texte remplit son cadre"],
+      ["125-stats", "Stats de l'équipement : posées sous la plaque, « détails » reste cliquable"],
+      ["125-loin", "Courrier, « Chercher plus loin » : il trouve dans les conversations plus anciennes"]]],
+    ["0.124", "Courrier et bulles", [
+      ["124-liste", "Liste du Courrier : dossier en titre, sections, « Archivées » en pied"],
+      ["124-puce", "Menu de la puce d'entête : entier, vers le bas quand il ne tient pas au-dessus"],
+      ["124-nonlus", "Dossiers : une pastille dit ceux qui ont du non lu"],
+      ["124-bulles", "Bulles de la carte : au moins 3 secondes, plus longtemps pour un texte long"],
+      ["124-noms", "Noms des pions : rangés sans retard quand les pions bougent"]]],
+    ["0.123.0", "Carte", [
+      ["123-pictos", "Pictos d'action colorés"],
+      ["123-eventail", "Une pile de pions : l'éventail au survol montre chacun"]]],
+    ["0.119 à 0.121", "Fond et fenêtres", [
+      ["121-devant", "Une fenêtre du jeu ou un sac cliqué passe devant les autres"],
+      ["120-cuves", "DECK ouvert : « Cuves N % » au bandeau et la fiche DECK dans la bulle d'un pion"],
+      ["119-zone", "Entrée dans une zone : pas d'à-coup, le fond animé arrive vite"],
+      ["119-frappe", "Écrire dans le chat : fluide, sans retard à la frappe"]]]];
+  var magRecette = magasin("recette"), ficheRecette = null;
+  function lireRecette() { var v = magRecette.lire(), r = Object.create(null); if (v && typeof v === "object") Object.keys(v).slice(0, 300).forEach(function (c) { if (v[c] === "ok" || v[c] === "ko") r[c] = v[c]; }); return r; }
+  function pointsRecette() { var l = []; RECETTE.forEach(function (g) { g[2].forEach(function (p) { l.push({ version: g[0], id: p[0], texte: p[1] }); }); }); return l; }
+  function resteRecette() { var e = lireRecette(); return pointsRecette().filter(function (p) { return !e[p.id]; }).length; }
+  function compteRenduRecette() {
+    var e = lireRecette(), l = ["Recette en jeu de DC Confort " + VERSION + ", le " + new Date().toLocaleDateString("fr-FR")], pas = 0;
+    [["ko", "Ça cloche"], ["ok", "Vu, c'est bon"]].forEach(function (d) {
+      var ps = pointsRecette().filter(function (p) { return e[p.id] === d[0]; });
+      if (!ps.length) return;
+      l.push("", d[1] + " (" + ps.length + ") :");
+      ps.forEach(function (p) { l.push("- " + p.version + " · " + p.texte); });
+    });
+    pas = resteRecette();
+    l.push("", pas ? "Pas encore vu : " + pas + " sur " + pointsRecette().length : "Tout a été vu.");
+    return l.join("\n");
+  }
+  function ouvrirRecette() {
+    if (ficheRecette && ficheRecette.isConnected) { ficheRecette.remove(); ficheRecette = null; return; }
+    var a = document.activeElement, retour = !a || a === document.body || a === palHote ? palRetour : a, etats = lireRecette(), total = pointsRecette().length;
+    ficheRecette = el("div", "dcc-touches dcc-recette");
+    ficheRecette.setAttribute("role", "dialog");
+    ficheRecette.setAttribute("aria-label", "Points à vérifier en jeu");
+    var carte = el("div", "dcc-touches-carte"), titre = el("h2", null, "Points à vérifier en jeu"), compte = el("span"), liste = el("div", "dcc-recette-liste"), pied = el("div", "dcc-recette-pied");
+    var copier = k(el("button", null, "Copier le compte rendu"), "s"), fermer = k(el("button", null, "Fermer"), "s fantome");
+    var majCompte = function () { var n = Object.keys(etats).filter(function (c) { return pointsRecette().some(function (p) { return p.id === c; }); }).length; compte.textContent = n + " vus sur " + total; };
+    titre.appendChild(compte);
+    RECETTE.forEach(function (g) {
+      var h = el("h3", null, "v" + g[0] + " "), ul = el("ul");
+      h.appendChild(el("span", null, "· " + g[1]));
+      g[2].forEach(function (p) {
+        var li = el("li"), ok = k(el("button", "dcc-rc-ok", "✓"), "icone s"), ko = k(el("button", "dcc-rc-ko", "✗"), "icone s");
+        var poser = function () {
+          var e = etats[p[0]] || "";
+          if (e) li.setAttribute("data-etat", e); else li.removeAttribute("data-etat");
+          ok.setAttribute("aria-pressed", String(e === "ok")); ko.setAttribute("aria-pressed", String(e === "ko"));
+        };
+        ok.type = ko.type = "button";
+        ok.title = "Vu en jeu, c'est bon"; ko.title = "Vu en jeu, ça cloche";
+        ok.setAttribute("aria-label", "Vu, c'est bon : " + p[1]); ko.setAttribute("aria-label", "Ça cloche : " + p[1]);
+        [[ok, "ok"], [ko, "ko"]].forEach(function (d) {
+          d[0].addEventListener("click", function () {
+            if (etats[p[0]] === d[1]) delete etats[p[0]]; else etats[p[0]] = d[1];
+            magRecette.ecrire(etats); poser(); majCompte();
+          });
+        });
+        li.append(el("span", null, p[1]), ok, ko);
+        poser();
+        ul.appendChild(li);
+      });
+      liste.append(h, ul);
+    });
+    copier.type = fermer.type = "button";
+    var fin = function () { if (ficheRecette) { ficheRecette.remove(); ficheRecette = null; if (retour && retour.focus && retour.isConnected) retour.focus(); } };
+    copier.addEventListener("click", function () { copierTexte(compteRenduRecette(), "Compte rendu"); });
+    fermer.addEventListener("click", fin);
+    ficheRecette.addEventListener("click", function (e) { if (e.target === ficheRecette) fin(); });
+    ["keydown", "keyup", "keypress"].forEach(function (t) { ficheRecette.addEventListener(t, function (e) { if (e.key === "Escape" && t === "keydown") fin(); e.stopPropagation(); }); });
+    pied.append(copier, fermer);
+    carte.append(titre, liste, pied);
+    ficheRecette.appendChild(carte);
+    document.body.appendChild(ficheRecette);
+    majCompte();
     fermer.focus();
   }
   // Une annonce brève en bas de l'écran (copie faite, import fait) ; lue aussi par les lecteurs d'écran
@@ -12780,7 +12987,7 @@
   }
   function palettePermise() { return reglages.actif && reglages.niveau !== "origine"; }
   document.addEventListener("keydown", function (e) {
-    if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key === "." && pupitre()) { e.preventDefault(); e.stopPropagation(); basculerFocus(); return; }
+    if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key === "." && pupitre()) { e.preventDefault(); e.stopPropagation(); basculerScene(); return; }
     if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey || (e.key !== "k" && e.key !== "K")) return;
     if (!palettePermise()) return;
     e.preventDefault();
@@ -13670,6 +13877,7 @@
   try { sons = window.DCC_SONS.creer({ enCombat: function () { return enCombat; }, reglages: { actif: sonsPermis() } }); sons.regler({ arrierePlan: { combat: true, notif: true, tour: true } }); } catch (e) { sons = null; }
   if (sons) { var jouerSon = sons.jouer; sons.jouer = function (c) { if (npd && SONS_NPD.indexOf(c) < 0) return; return jouerSon.apply(sons, arguments); }; }
   racine.classList.toggle("dcc-npd", npd);
+  racine.classList.toggle("dcc-en-scene", enScene());
   var LOT_MAX = 3;
   function adresseeAMoi(ligne) {
     var l = ligne.querySelector(".linkable"), cible = l && l.textContent.split("@")[1];
