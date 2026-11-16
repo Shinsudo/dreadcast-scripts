@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DC Confort
 // @namespace    deck.local
-// @version      0.130.0
+// @version      0.131.0
 // @updateURL    https://raw.githubusercontent.com/Shinsudo/dreadcast-scripts/main/dc-confort.meta.js
 // @downloadURL  https://raw.githubusercontent.com/Shinsudo/dreadcast-scripts/main/dc-confort.user.js
 // @description  Rend l'écran de Dreadcast et son forum plus lisibles. Le Courrier, façon DDM V2, lit les messages auprès du jeu et envoie tes réponses, à ta demande seulement.
@@ -48,7 +48,7 @@
    Repères du jeu : DOM-JEU.md (relevés du 23 et du 24/10/2026). */
 (function () {
   "use strict";
-  var VERSION = "0.130.0";
+  var VERSION = "0.131.0";
   var racine = document.documentElement;
   // Les éléments que DC Confort crée : un changement fait dedans ne relance pas l'observateur (audit de phase 6, n° 14)
   var nos = typeof WeakSet === "function" ? new WeakSet() : null;
@@ -220,6 +220,14 @@
   var PART_AMBIANCE = .1;
   // Un seul son à la fois : dans cet intervalle après un son, seul un son de rang plus haut passe
   var ENTRE_DEUX = 1500;
+  // L'état du personnage (v0.130.0, d'après les repères d'Agenda perso) : en plongée matricielle, ni le chat du lieu ni son
+  // ambiance ; mort ou en cryogénisation, seuls le Courrier, ton nom cité et les rappels de DECK sonnent encore
+  var MUET_HORS_JEU = ["chat", "chuchote", "vol", "combat", "munitions", "neuvopack", "fouille", "notif", "lieu", "tour"];
+  var SILENCES_ETAT = {
+    plongee: { raison: "plongée matricielle", categories: ["chat", "chuchote", "lieu"] },
+    mort: { raison: "personnage mort", categories: MUET_HORS_JEU },
+    cryo: { raison: "en cryogénisation", categories: MUET_HORS_JEU }
+  };
 
   function creer(opts) {
     opts = opts || {};
@@ -228,6 +236,9 @@
     var ctx = null, arme = !!opts.arme, derniers = {}, cedes = {}, journal = [], dernierSon = null, bruitNote = null;
     var maintenant = opts.horloge || function () { return Date.now(); };
     var enCombat = opts.enCombat || function () { return false; };
+    var etat = opts.etat || function () { return null; };
+    // La raison de se taire tenant à l'état du personnage, pour une catégorie (ou pour l'ambiance, sans catégorie)
+    function silenceEtat(cat) { var e = SILENCES_ETAT[etat()]; return e && (cat == null || e.categories.indexOf(cat) >= 0) ? e.raison : null; }
     var cache = opts.ongletCache || function () { return typeof document !== "undefined" && document.hidden; };
     var heure = opts.heure || function () { var d = new Date(); return d.getHours() + d.getMinutes() / 60; };
     function noter(t) { journal.push(t); if (journal.length > 100) journal.shift(); }
@@ -247,6 +258,7 @@
       var vol = (reglages.volumes[cat] || 0) * reglages.general;
       if (vol <= 0) return "volume nul";
       if (enCombat() && !def.combat) return "combat en cours";
+      var se = silenceEtat(cat); if (se) return se;
       if (reglages.arrierePlan[cat] && !cache()) return "onglet au premier plan";
       var hc = reglages.heuresCalmes;
       if (hc && !def.combat) { var h = heure(); if (hc[0] > hc[1] ? (h >= hc[0] || h < hc[1]) : (h >= hc[0] && h < hc[1])) return "heures calmes"; }
@@ -299,6 +311,7 @@
       if (!reglages.actif) return "sons coupés";
       if (!arme) return "pas encore de geste de la joueuse";
       if (enCombat()) return "combat en cours";
+      var se = silenceEtat(); if (se) return se;
       if (reglages.general <= 0) return "volume nul";
       var hc = reglages.heuresCalmes;
       if (hc) { var h = heure(); if (hc[0] > hc[1] ? (h >= hc[0] || h < hc[1]) : (h >= hc[0] && h < hc[1])) return "heures calmes"; }
@@ -378,7 +391,7 @@
     { script: "DC - Fouille Tracker", trace: "#dc_fouille_timer", categories: ["fouille"] }
   ];
 
-  racine.DCC_SONS = { creer: creer, CATEGORIES: CATEGORIES, DEFAUTS: DEFAUTS, SCRIPTS_SONORES: SCRIPTS_SONORES };
+  racine.DCC_SONS = { creer: creer, CATEGORIES: CATEGORIES, DEFAUTS: DEFAUTS, SCRIPTS_SONORES: SCRIPTS_SONORES, SILENCES_ETAT: SILENCES_ETAT };
 })(window);
   /* sons:fin */
 
@@ -389,14 +402,22 @@
    messages sont arrivés depuis ta dernière visite sur ce navigateur, un saut vers le premier d'entre eux.
    Tout vient de la page : le texte exact d'un message est déjà dans #message_<id>_texte_brut. Le module ne clique
    jamais, n'envoie rien, ne fait aucune requête, ne remplace aucune fonction du jeu et n'envoie aucun événement : le
-   texte qu'il met dans le champ de réponse y est écrit directement. Il écoute seulement ton clic sur « Poster ».
+   texte qu'il met dans le champ de réponse y est écrit directement. Il écoute seulement ton clic sur « Poster », et
+   arrête un second clic dans les 5 s quand le texte n'a pas changé (v0.41.0, d'après StopMultipleMessage) : il retient
+   ton geste, il n'en fait aucun. Un bloc [code] revient à la ligne au lieu d'élargir la page (d'après BreakingLineCode).
    Ses classes et identifiants commencent par « dcc- ». Si un repère manque, la partie qui en dépend ne s'installe pas.
    Repères : DOM-JEU.md §9 (relevé du 23/10/2026). Mode d'emploi : FORUM.md. */
 (function (racine) {
   "use strict";
-  var VERSION = "0.40.5";
-  var DUREE_BROUILLON = 14 * 864e5, MAX_BROUILLONS = 50, TAILLE_BROUILLON = 30000, MAX_SUJETS = 300;
+  var VERSION = "0.41.0";
+  var DUREE_BROUILLON = 14 * 864e5, MAX_BROUILLONS = 50, TAILLE_BROUILLON = 30000, MAX_SUJETS = 300, DELAI_DOUBLE = 5000;
   var STYLES = [
+    // Un bloc [code] (rendu en pre) revient à la ligne : les relevés et textes de loi collés en [code] élargissaient la page
+    "html.dcc-forum #liste_messages .zone_display_text pre { white-space: pre-wrap; overflow-wrap: anywhere; max-width: 100%; box-sizing: border-box; }",
+    // « Poster » vient d'être cliqué : grisé 5 s, le temps que le forum réponde ; un second clic est retenu et le dit
+    "html.dcc-forum .bouton.poster.dcc-forum-envoi { opacity: .55; cursor: progress; }",
+    ".dcc-forum-double { display: block; margin: 4px 0; font: 12px/1.4 'Segoe UI', Arial, sans-serif; opacity: .85; }",
+    ".dcc-forum-double[hidden] { display: none; }",
     // Lecture, pour les messages sans mise en page : texte à 13,5 px au moins et interligne aéré. La largeur reste celle du
     // message : un texte resserré décentrait les titres centrés (capture du 25/10/2026)
     "html.dcc-forum #liste_messages .zone_display_text.dcc-forum-lisible { font-size: max(13.5px, 1em); line-height: 1.6; overflow-wrap: break-word; }",
@@ -630,6 +651,30 @@
     }
     function surSortie() { if (attente) { clearTimeout(attente); enregistrer(); } }
 
+    // ---------- Anti double envoi (v0.41.0, d'après StopMultipleMessage) ----------
+    // Écouté en capture sur la page, avant le « Poster » du jeu : un second clic dans les 5 s, texte inchangé, s'arrête là.
+    // Le premier passe toujours, et un texte modifié aussi. Rien n'est cliqué ni envoyé à ta place.
+    var boutonPoster = zone && (zone.parentNode.querySelector(".bouton.poster") || doc.querySelector("#footer_sujet .bouton.poster"));
+    var dernierPoster = null, noteDouble = null, minuterieDouble = null;
+    function garderPoster(ev) {
+      if (!vivant || !boutonPoster || !ev.target || typeof ev.target.closest !== "function" || ev.target.closest(".bouton.poster") !== boutonPoster) return;
+      var t = Date.now(), texte = zone.value;
+      if (dernierPoster && t - dernierPoster.t < DELAI_DOUBLE && texte === dernierPoster.texte && texte.trim()) {
+        ev.stopImmediatePropagation();
+        ev.preventDefault();
+        if (!noteDouble) { noteDouble = el("span", "dcc-forum-double"); noteDouble.setAttribute("role", "status"); boutonPoster.parentNode.insertBefore(noteDouble, boutonPoster.nextSibling); }
+        noteDouble.textContent = "Déjà envoyé il y a " + Math.max(1, Math.round((t - dernierPoster.t) / 1000)) + " s : ce second clic n'est pas parti.";
+        noteDouble.hidden = false;
+        return;
+      }
+      dernierPoster = { t: t, texte: texte };
+      if (noteDouble) noteDouble.hidden = true;
+      boutonPoster.classList.add("dcc-forum-envoi");
+      clearTimeout(minuterieDouble);
+      minuterieDouble = setTimeout(function () { boutonPoster.classList.remove("dcc-forum-envoi"); if (noteDouble) noteDouble.hidden = true; }, DELAI_DOUBLE);
+    }
+    if (boutonPoster) doc.addEventListener("click", garderPoster, true);
+
     if (zone) {
       zone.addEventListener("focus", function () { zoneTouchee = true; });
       if (sujet) {
@@ -638,7 +683,7 @@
         brouillons = nettoyerBrouillons(lireCle("forum-brouillons"), Date.now());
         // Ton clic sur « Poster » (écouté, jamais simulé). Si la page se recharge, le brouillon est marqué « envoyé » et
         // effacé quand son texte apparaît dans le sujet ; si le jeu vide le champ sur place, il est effacé aussitôt.
-        var poster = zone.parentNode.querySelector(".bouton.poster") || doc.querySelector("#footer_sujet .bouton.poster");
+        var poster = boutonPoster;
         if (poster) poster.addEventListener("click", function () {
           if (!vivant) return;
           surSortie();
@@ -785,9 +830,11 @@
         surSortie();
         observateur.disconnect();
         window.removeEventListener("pagehide", surSortie);
-        Array.prototype.forEach.call(doc.querySelectorAll(".dcc-forum-outils, .dcc-forum-secours, .dcc-forum-brouillon, .dcc-forum-citer, .dcc-forum-carte, #dcc-forum-styles"), function (n) { n.remove(); });
-        Array.prototype.forEach.call(doc.querySelectorAll(".dcc-forum-nouveau, .dcc-forum-personnage, .dcc-forum-lisible, [data-dcc-lecture]"), function (n) {
-          n.classList.remove("dcc-forum-nouveau", "dcc-forum-personnage", "dcc-forum-lisible");
+        doc.removeEventListener("click", garderPoster, true);
+        clearTimeout(minuterieDouble);
+        Array.prototype.forEach.call(doc.querySelectorAll(".dcc-forum-outils, .dcc-forum-secours, .dcc-forum-brouillon, .dcc-forum-citer, .dcc-forum-carte, .dcc-forum-double, #dcc-forum-styles"), function (n) { n.remove(); });
+        Array.prototype.forEach.call(doc.querySelectorAll(".dcc-forum-nouveau, .dcc-forum-personnage, .dcc-forum-lisible, .dcc-forum-envoi, [data-dcc-lecture]"), function (n) {
+          n.classList.remove("dcc-forum-nouveau", "dcc-forum-personnage", "dcc-forum-lisible", "dcc-forum-envoi");
           n.removeAttribute("data-dcc-lecture");
         });
         html.classList.remove("dcc-forum");
@@ -1190,7 +1237,7 @@
 
   // ---------- Réglages : stockage de Tampermonkey, ou du navigateur hors Tampermonkey (page de test) ----------
   var DEFAUTS = { actif: true, niveau: "confort", mouvement: "discret", texteChat: "normal", horsJeu: true, aidesChat: true, sonsChat: true, carte: true, rangerNotifs: true, volume: 60, triMessages: "recents", bulles: "tout", tailleBulles: "normale", nomsCarte: "parlent",
-    decor: "lieu", ambiance: "coupee", agencement: "jeu", focus: false, entreeLigne: true, entreeLigneDefaut: false, deuxApparences: false };
+    decor: "lieu", ambiance: "coupee", agencement: "jeu", focus: false, entreeLigne: true, entreeLigneDefaut: false, deuxApparences: false, glisserConv: true };
   var CHOIX = { niveau: ["origine", "confort", "refonte"], mouvement: ["aucun", "discret", "expressif"], texteChat: ["normal", "grand"], triMessages: ["recents", "nonlus", "nom"], bulles: ["tout", "repliques"], tailleBulles: ["normale", "grande"], nomsCarte: ["parlent", "tous"],
     decor: ["lieu", "uni"], ambiance: ["coupee", "douce"], agencement: ["jeu", "maquette"] };
   function magasin(cle) {
@@ -2444,6 +2491,8 @@
     "html.dcc-maquette [id^='db_deck_']:not([data-dcc-ecran='phosphore']) .ligne_ecrite_fixed[data-dcc-nature='illegale'] input.texte { color: var(--dcc-danger) !important; }",
     "html.dcc-maquette [id^='db_deck_']:not([data-dcc-ecran='phosphore']) .ligne_resultat_fixed { width: auto !important; margin: 2px 0 8px 44px !important; padding-left: 18px !important; border-left: 1px solid rgb(var(--dcc-filet-rvb) / .16); color: var(--dcc-t2) !important; }",
     "html.dcc-maquette [id^='db_deck_']:not([data-dcc-ecran='phosphore']) .ligne_resultat_fixed[data-dcc-refus] { border-left-color: var(--dcc-danger); color: var(--dcc-danger) !important; }",
+    // Une ligne que Pyrope a colorée (setColor) garde la couleur choisie dans Pyrope (v0.131.0)
+    "html.dcc-maquette [id^='db_deck_'] .ligne_resultat_fixed.pyrope-custom-color { color: var(--pyrope-line-color) !important; }",
     "html.dcc-maquette [id^='db_deck_']:not([data-dcc-ecran='phosphore']) .ligne_ecrite_fixed[data-dcc-heure]::before { font: 11px var(--dcc-chiffres) !important; color: var(--dcc-t3) !important; }",
     "html.dcc-maquette [id^='db_deck_']:not([data-dcc-ecran='phosphore']) .dcc-deplier { margin-left: 62px; }",
     "html.dcc-maquette [id^='db_deck_'] .dcc-outils-deck :is(button, .dcc-deck-serie) { font-family: 'Segoe UI', Arial, sans-serif; }",
@@ -5556,6 +5605,19 @@
       setTimeout(function () { d.remove(); planifierPlacement(); }, MV.long);
     }, duree);
   }
+
+  // ---------- Le verrou du glisser-déposer (v0.131.0, réglage « Glisser une conversation vers un dossier ») ----------
+  // Le jeu rend chaque ligne de la liste déplaçable (jQuery UI draggable, au mousedown). Réglage « Bloqué » : ton appui
+  // sur une ligne s'arrête ici, en capture, avant le jeu ; le clic qui ouvre la conversation passe toujours, comme les
+  // cases à cocher, les boutons et les liens. Rien n'est cliqué ni déplacé à ta place, et aucune fonction du jeu n'est
+  // changée. D'après LockD&DMail et [DC] Messagerie +.
+  function verrouGlisser(e) {
+    if (reglages.glisserConv || !reglages.actif || reglages.niveau === "origine") return;
+    var t = e.target;
+    if (!t || typeof t.closest !== "function" || !t.closest("#liste_messages li.message") || t.closest("input, button, a, textarea, select, label")) return;
+    e.stopPropagation();
+  }
+  ["mousedown", "touchstart"].forEach(function (type) { document.addEventListener(type, verrouGlisser, { capture: true, passive: true }); });
 
   // ---------- Messagerie (lot F) : seulement ce que le jeu affiche ; rien n'est lu en fond, rien n'est envoyé ----------
   // Liste : #liste_messages li.message#message_<id> (.message_titre, .message_auteur, .message_date). Fenêtre d'une
@@ -10424,7 +10486,8 @@
 
   // ---------- Tes autres scripts : DC Confort leur laisse leur place (traces relevées, DOM-JEU.md §8) ----------
   var SCRIPTS = [
-    { cle: "chat", nom: "Chat Enhancer", trace: "#dcce_configwindow, #dcce_background, audio#checkchat", sons: ["chat", "mention", "chuchote"], laisse: "la taille du chat, le son, le défilement et les raccourcis de saisie", reprend: "le compteur, les nouveaux, les avatars, ton nom surligné, les couleurs des émotes et des noms ; le reste, commandes de narration comprises, prend le relais quand tu le désactives" },
+    // Depuis sa 2.3.18 (24/10/2026), Chat Enhancer ramène le chat en bas à chaque ligne reçue : « garder ta place » ne tient plus
+    { cle: "chat", nom: "Chat Enhancer", trace: "#dcce_configwindow, #dcce_background, audio#checkchat", sons: ["chat", "mention", "chuchote"], laisse: "la taille du chat, le son, le défilement (il ramène le chat en bas à chaque ligne, même quand tu relis plus haut) et les raccourcis de saisie", reprend: "le compteur, les nouveaux, les avatars, ton nom surligné, les couleurs des émotes et des noms ; le reste, commandes de narration comprises, prend le relais quand tu le désactives" },
     { cle: "notifs", nom: "DC Notif'", trace: "#evilbox-history-bell, body.dc-notify-hide-original", sons: ["notif", "vol"], laisse: "l'affichage des notifications et leur son", reprend: "l'historique des notifications dans ce panneau, sans clic ; le rangement de l'écran prend le relais quand tu le désactives" },
     { cle: "messagerie", nom: "DC Dynamic Message V2", trace: "style#modern-messaging-styles, style#live-msg-hide-original, .modern-conversation-window, .ddm-options-btn", sons: ["message"], laisse: "la messagerie et son son", reprend: "le filtre des conversations, le fil lisible, le brouillon gardé, les entêtes RP, les actions rapides, « Citer », les épingles et la sourdine (en local), les liens cliquables, sans rien lire en fond ni rien envoyer ; ils prennent le relais quand tu le désactives" },
     { cle: "pions", nom: "Pimp My Pion", trace: "#pmp-settings-menu, #avatar-resize-menu-option, img.custom-avatar-img", laisse: "les avatars des pions", reprend: "les avatars et l'éventail, qui prennent le relais quand tu le désactives" },
@@ -10441,6 +10504,12 @@
     { cle: "agenda", nom: "Agenda perso", trace: "#dc-agenda-toggle", laisse: "son agenda" },
     { cle: "igforum", nom: "IGForum", trace: "#dc-forum-modal", laisse: "le forum en jeu" },
     { cle: "fplive", nom: "FPLive", trace: ".fpl-menu-btn", laisse: "ses alertes de forum" },
+    // Les scripts parus ou changés depuis le 21/10/2026 (TOUR-SCRIPTS-2026-11-16.md §4) : repérés par ce qu'ils posent dans la page
+    { cle: "messagerieplus", nom: "[DC] Messagerie +", trace: ".dcm-toggle, .dcm-order, .dcm-drag, .dcm-subfolder", laisse: "l'ordre et le pliage des dossiers dans la liste du jeu, et son propre verrou du glisser-déposer", reprend: "le Courrier lit chaque dossier par son numéro, masqué ou non : les dossiers rangés par lui y restent justes" },
+    { cle: "horny", nom: "[DC] Thème Horny", trace: "style#horny-theme-game-vars, [id^='horny-theme']", laisse: "les couleurs et les images du jeu", reprend: "ses propres couleurs (jetons) ; avec l'agencement Maquette, deux habillages se superposent : en garder un seul" },
+    { cle: "pyrope", nom: "Pyrope", trace: ".pyrope-copy-button, .pyrope-loaded, .pyrope-custom-color", laisse: "ses commandes, les lignes du deck qu'il réécrit et leur couleur (setColor)", reprend: "la mise en forme du deck et l'aide-mémoire des commandes, autour de ses lignes" },
+    { cle: "pleinecran", nom: "Dreadcast - Plein écran", trace: "#dreadcast-fullscreen-style, #dreadcast-fullscreen-menu-option", laisse: "la taille de l'interface (il change la largeur que le jeu croit avoir)", reprend: "rien : il ne va pas avec l'agencement Maquette, garde-en un seul" },
+    { cle: "grandeimage", nom: "Grande image des objets", trace: "#dc-image-preview, #dc-image-size-slider", laisse: "l'image agrandie des objets au survol" },
     { cle: "skin", nom: "Skin Stylus", trace: "style.stylus", laisse: "l'habillage de la page" }
   ];
   // Une seule liste, pour l'affichage et pour les sons (sons : les catégories que le script sonne déjà). La liste
@@ -11740,6 +11809,23 @@
     fondSouterrain: "souterrain", fondMort: "mort", fondVide: "vide" };
   function idFond() { var f = document.querySelector(".fondMainPage.displayed"); return f ? f.id : ""; }
   function enPlongee() { var c = document.getElementById("main_cydive"); return !!(c && c.offsetWidth); }
+  // L'état du personnage, pour les sons (v0.131.0, repères relevés dans Agenda perso) : en plongée matricielle, mort (l'icône
+  // d'action du jeu porte actionMort) ou en cryogénisation (l'action en cours le dit). Les sons lisent cet état au moment
+  // de sonner (sons.js, SILENCES_ETAT) ; un changement relance seulement l'ambiance du lieu
+  function etatPerso() {
+    if (enPlongee()) return "plongee";
+    if (document.querySelector("#icon_action.actionMort")) return "mort";
+    var a = document.querySelector("#action_actuelle .action");
+    return a && /cryog[ée]nis/i.test(a.textContent) ? "cryo" : null;
+  }
+  var etatPersoVu;
+  function verifierEtatPerso() {
+    var e = etatPerso();
+    if (e === etatPersoVu) return;
+    etatPersoVu = e;
+    if (e) racine.setAttribute("data-dcc-etat", e); else racine.removeAttribute("data-dcc-etat");
+    majAmbiance();
+  }
   function lieuDuFond() {
     var id = idFond();
     for (var i = 0; i < LIEUX_FOND.length; i++) if (LIEUX_FOND[i][0].test(id)) return LIEUX_FOND[i][1];
@@ -12739,6 +12825,11 @@
   // « Copier le compte rendu » en fait un texte à coller. Rien n'est testé à ta place et rien ne paraît hors de cette fiche.
   // Un point reste tant qu'il n'est pas retiré de cette liste par une version suivante ; ses réponses sont gardées par numéro.
   var RECETTE = [
+    ["0.131.0", "Garde-fous", [
+      ["131-poster", "Forum : un double clic sur « Poster » ne publie qu'une fois, et une ligne dit que le second n'est pas parti"],
+      ["131-code", "Forum : un long bloc [code] revient à la ligne au lieu d'élargir le message"],
+      ["131-glisser", "Réglage « Glisser une conversation » sur Bloqué : la conversation ne se déplace plus à la souris, mais s'ouvre toujours au clic"],
+      ["131-plongee", "En plongée matricielle : le chat du lieu ne sonne plus, ton nom cité si"]]],
     ["0.129.0", "Ambiance", [
       ["129-carton", "En entrant dans un lieu, son nom s'inscrit 2 secondes sur le bas de la carte, sans gêner"],
       ["129-carton-rue", "En marchant dans la rue, le carton ne revient pas à chaque pas"],
@@ -13346,7 +13437,7 @@
       detectionPrevue = null;
       // Chacune à part : une erreur n'arrête pas les suivantes (lot 101, G3)
       [["scripts", detecterScripts], ["coin du deck", reserverCoinDeck], ["menu", placerMenu], ["compteur", brancherCompteur], ["modèles du chat", brancherModelesChat],
-        ["défilement", suivreDefilement], ["avatars", recolterAvatars], ["historique", brancherHistorique], ["reduites", majReduites]].forEach(function (x) { etape(x[0], x[1]); });
+        ["défilement", suivreDefilement], ["avatars", recolterAvatars], ["historique", brancherHistorique], ["reduites", majReduites], ["état du personnage", verifierEtatPerso]].forEach(function (x) { etape(x[0], x[1]); });
     }, 500);
   });
   // Ce que le jeu réécrit sans cesse et qui ne concerne ni la détection ni la Maquette : le chat, l'aperçu, l'action en cours
@@ -13450,7 +13541,7 @@
     if (notifsAVoir) { notifsAVoir = false; etape("notifications", majNotifs); }
     if (terminalAVoir) { terminalAVoir = false; etape("terminal", brancherTerminal); etape("terminal portable", majTerminalPortable); }
     // (l'action en cours est aussi écrite dans le cadre du Focus)
-    if (fouilleAVoir) { fouilleAVoir = false; etape("fouille", majFouille); etape("focus", majMiniMoi); }
+    if (fouilleAVoir) { fouilleAVoir = false; etape("fouille", majFouille); etape("focus", majMiniMoi); etape("état du personnage", verifierEtatPerso); }
     if (neuvoAVoir) { neuvoAVoir = false; etape("neuvopack", majNeuvopacks); }
     if (objetsAVoir) { objetsAVoir = false; etape("usure", majUsure); etape("aitl", majAitlJeu); etape("comparaison", majComparaisons); etape("sacs", majOutilsSacs); }
     // Une fenêtre arrivée du serveur (fiche d'un perso, sac) après le relâché de la souris : le rail et les puces qu'elle
@@ -13639,6 +13730,10 @@
     var lc = ligne("Couleurs des noms", el("em", "note", nbCouleurs ? nbCouleurs + " personnage" + (nbCouleurs > 1 ? "s" : "") : "aucune"));
     lc.firstChild.appendChild(el("small", null, "Dans la fiche d'un personnage (clic sur son nom)"));
     corps.appendChild(lc);
+    // Le verrou du glisser-déposer (v0.131.0, d'après LockD&DMail et Messagerie +) : ouvert par défaut, comme le jeu
+    var lg = ligne("Glisser une conversation vers un dossier", interrupteur("glisserConv", ["Permis", "Bloqué"]));
+    lg.firstChild.appendChild(el("small", null, reglages.glisserConv ? "Comme le jeu : à la souris, dans la liste des conversations" : "Pas de rangement par erreur à la souris ; les autres façons de déplacer restent"));
+    corps.appendChild(lg);
     corps.appendChild(editeurNarration());
     corps.appendChild(editeurModeles());
     corps.appendChild(sectionNotifs());
@@ -13874,7 +13969,7 @@
   // Une autre réplique : seulement quand l'onglet du jeu est en arrière-plan. Jamais pour tes lignes ni l'ancien.
   var sons = null;
   // Le début d'un combat ne sonne que si l'onglet du jeu est en arrière-plan ; les munitions basses, toujours.
-  try { sons = window.DCC_SONS.creer({ enCombat: function () { return enCombat; }, reglages: { actif: sonsPermis() } }); sons.regler({ arrierePlan: { combat: true, notif: true, tour: true } }); } catch (e) { sons = null; }
+  try { sons = window.DCC_SONS.creer({ enCombat: function () { return enCombat; }, etat: etatPerso, reglages: { actif: sonsPermis() } }); sons.regler({ arrierePlan: { combat: true, notif: true, tour: true } }); } catch (e) { sons = null; }
   if (sons) { var jouerSon = sons.jouer; sons.jouer = function (c) { if (npd && SONS_NPD.indexOf(c) < 0) return; return jouerSon.apply(sons, arguments); }; }
   racine.classList.toggle("dcc-npd", npd);
   racine.classList.toggle("dcc-en-scene", enScene());
@@ -13916,7 +14011,8 @@
   [["réglages", appliquer], ["avatars", recolterAvatars], ["couleurs du skin", couleursDuSkin], ["feuille", majFeuille], ["fiches", brancherFiches], ["chat", traiterChat],
     ["carte", majPions], ["combat", majJournal], ["combat", majBilan], ["munitions", majMunitions], ["messagerie", majMessagerie], ["notifications", majNotifs],
     ["date", majDatePTI], ["terminal", brancherTerminal], ["fouille", majFouille], ["neuvopack", majNeuvopacks], ["compteur", brancherCompteur], ["modèles du chat", brancherModelesChat],
-    ["défilement", suivreDefilement], ["historique", brancherHistorique], ["scripts", detecterScripts], ["combat", verifierCombat], ["menu", placerMenu], ["observateur", brancherObservateur]
+    ["défilement", suivreDefilement], ["historique", brancherHistorique], ["scripts", detecterScripts], ["combat", verifierCombat], ["menu", placerMenu], ["observateur", brancherObservateur],
+    ["état du personnage", verifierEtatPerso]
   ].forEach(function (x) { etape(x[0], x[1]); });
   setTimeout(function () { etape("chat", caleChatPrevu); }, 1500);
   setTimeout(function () { etape("maquette", majRefonte); }, 8500);
