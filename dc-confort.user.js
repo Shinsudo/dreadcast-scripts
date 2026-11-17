@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DC Confort
 // @namespace    deck.local
-// @version      0.131.0
+// @version      0.131.1
 // @updateURL    https://raw.githubusercontent.com/Shinsudo/dreadcast-scripts/main/dc-confort.meta.js
 // @downloadURL  https://raw.githubusercontent.com/Shinsudo/dreadcast-scripts/main/dc-confort.user.js
 // @description  Rend l'écran de Dreadcast et son forum plus lisibles. Le Courrier, façon DDM V2, lit les messages auprès du jeu et envoie tes réponses, à ta demande seulement.
@@ -48,7 +48,7 @@
    Repères du jeu : DOM-JEU.md (relevés du 23 et du 24/10/2026). */
 (function () {
   "use strict";
-  var VERSION = "0.131.0";
+  var VERSION = "0.131.1";
   var racine = document.documentElement;
   // Les éléments que DC Confort crée : un changement fait dedans ne relance pas l'observateur (audit de phase 6, n° 14)
   var nos = typeof WeakSet === "function" ? new WeakSet() : null;
@@ -2126,7 +2126,7 @@
     ".dcc-im-encart-titre { color: var(--dcc-t3); font: 600 11px var(--dcc-chiffres); letter-spacing: .08em; text-transform: uppercase; }",
     ".dcc-im-encart select { flex: 0 1 auto; max-width: 70%; }",
     ".dcc-im-encart[data-transmission] select { border-color: color-mix(in srgb, var(--dcc-tr) 55%, transparent); color: color-mix(in srgb, var(--dcc-tr) 70%, var(--dcc-t1)); }",
-    ".dcc-im-envoi { opacity: .6; } .dcc-im-trou em { font-style: normal; color: var(--dcc-t3); } .dcc-im-trou button:disabled { opacity: .55; cursor: default; }",
+    ".dcc-im-envoi { opacity: .6; } .dcc-im-envoi.dcc-im-parti { opacity: .85; } .dcc-im-trou em { font-style: normal; color: var(--dcc-t3); } .dcc-im-trou button:disabled { opacity: .55; cursor: default; }",
     // Objets : la comparaison dans la bulle du jeu ; sacs : chercher et montrer une famille
     ".dcc-compare { margin: 6px 0 2px; padding: 4px 8px; border-radius: 8px; background: rgb(0 0 0 / .35); box-shadow: inset 0 0 0 1px rgb(var(--dcc-filet-rvb) / .25); text-align: left; font: 12px/1.45 'Segoe UI', Arial, sans-serif; color: var(--dcc-t1); }",
     ".dcc-compare b { display: block; margin-bottom: 2px; color: var(--dcc-t2); font-weight: 600; } .dcc-cmp-ligne { display: flex; flex-wrap: wrap; gap: 2px 8px; } .dcc-cmp-ligne i { font-style: normal; color: var(--dcc-t2); }",
@@ -7442,7 +7442,8 @@
     var e = etatConv(conv);
     if (e.prevu) return;
     e.prevu = true;
-    setTimeout(function () { e.prevu = false; var b = boiteConv(conv); if (b && fenetresIm[conv]) etape("courrier", function () { majIm(b, conv); }); }, 120);
+    // À l'image suivante (v0.131.1 : 120 ms d'attente à chaque texte lu, chaque envoi, chaque arrivée)
+    aLaProchaineImage(function () { e.prevu = false; var b = boiteConv(conv); if (b && fenetresIm[conv]) etape("courrier", function () { majIm(b, conv); }); });
   }
   function jeuMessagerie() { var n = pageWin.nav; try { return n && typeof n.getMessagerie === "function" ? n.getMessagerie() : null; } catch (e) { return null; } }
   // Garder un texte lu auprès du jeu dans le fil (mêmes limites que les messages ouverts)
@@ -7477,24 +7478,30 @@
       .then(function (r) { return r.ok ? r.text() : Promise.reject(new Error("HTTP " + r.status)); }).then(texteDeReponse);
   }
   /* lecture-courrier:fin */
-  // Une file par conversation, un message à la fois, 150 ms entre deux
+  // Une file par conversation, les plus récents d'abord, 4 lectures à la fois (v0.131.1 : un message à la fois, 150 ms
+  // entre deux, remplissait 15 bulles en 5 à 6 s ; à quatre, en un peu plus d'une seconde)
+  var LECTURES_PARALLELES = 4;
   function chargerIm(conv, ids) {
-    var l = lectures[conv] || (lectures[conv] = { file: [], enCours: null, echecs: Object.create(null), vides: Object.create(null) });
-    ids.forEach(function (id) { if (l.enCours !== id && l.file.indexOf(id) < 0 && !(fil[conv] && fil[conv].m[id] && fil[conv].m[id].l)) { delete l.echecs[id]; l.file.push(id); } });
-    if (l.enCours || !l.file.length) { planifierIm(conv); return; }
-    var id = l.file.shift();
-    l.enCours = id;
+    var l = lectures[conv] || (lectures[conv] = { file: [], cours: Object.create(null), nbCours: 0, echecs: Object.create(null), vides: Object.create(null) });
+    ids.forEach(function (id) { if (!l.cours[id] && l.file.indexOf(id) < 0 && !(fil[conv] && fil[conv].m[id] && fil[conv].m[id].l)) { delete l.echecs[id]; l.file.push(id); } });
+    if (l.nbCours >= LECTURES_PARALLELES || !l.file.length) { planifierIm(conv); return; }
+    while (l.nbCours < LECTURES_PARALLELES && l.file.length) lireDansFile(conv, l, l.file.shift());
     planifierIm(conv);
+  }
+  function lireDansFile(conv, l, id) {
+    l.cours[id] = true;
+    l.nbCours++;
     lireMessage(conv, id).then(function (t) { if (t) garderTexte(conv, id, t); else l.vides[id] = true; }, function () { l.echecs[id] = true; })
       .then(function () {
-        l.enCours = null;
+        delete l.cours[id];
+        l.nbCours--;
         // Fenêtre fermée, ou Pupitre coupé entre-temps : la file est abandonnée
-        if (lectures[conv] !== l || !fenetresIm[conv] || !pupitre()) { if (lectures[conv] === l) delete lectures[conv]; return; }
+        if (lectures[conv] !== l || !fenetresIm[conv] || !pupitre()) { if (lectures[conv] === l && !l.nbCours) delete lectures[conv]; return; }
         planifierIm(conv);
-        if (l.file.length) setTimeout(function () { if (lectures[conv] === l && fenetresIm[conv]) chargerIm(conv, []); }, 150);
+        if (l.file.length) chargerIm(conv, []);
       });
   }
-  function enLecture(conv, id) { var l = lectures[conv]; return !!l && (l.enCours === id || l.file.indexOf(id) >= 0); }
+  function enLecture(conv, id) { var l = lectures[conv]; return !!l && (!!l.cours[id] || l.file.indexOf(id) >= 0); }
   function saisieIm(conv) { var w = fenetresIm[conv]; return w ? w.querySelector(".dcc-im-ligne textarea") : null; }
   // Le brouillon de ta réponse : le même que celui du champ du jeu (gardé 7 jours)
   function noterSaisie(conv) {
@@ -7912,7 +7919,7 @@
     if (vides) { r.appendChild(el("em", null, "le jeu n'a rien rendu")); return r; }
     var bt = k(el("button", "dcc-im-charger", enCours ? "Chargement…" : echec ? "Réessayer" : n > CHARGE_PLUS ? "Charger " + CHARGE_PLUS + " de plus" : "Charger"), "puce");
     bt.disabled = enCours;
-    bt.title = "Lit ces messages auprès du jeu, les plus récents d'abord, un à la fois";
+    bt.title = "Lit ces messages auprès du jeu, les plus récents d'abord";
     bt.addEventListener("click", function () { chargerIm(conv, liste.slice(-CHARGE_PLUS).reverse().map(function (m) { return m.id; })); });
     r.appendChild(bt);
     return r;
@@ -8232,6 +8239,7 @@
     if (!msgr || typeof msgr.openMessage !== "function") return;
     etatConv(conv).rechargeA = Date.now();
     etatConv(conv).peutEtre = false;
+    clearTimeout(etatConv(conv).reprise); etatConv(conv).reprise = null;
     // Rechargée pour ce compte de non-lus : le rechargement seul attend une nouvelle marque (lot 101, G2)
     etatConv(conv).autoFait = dernierNonLus || 0;
     try { if (document.getElementById("db_message_" + conv)) msgr.openMessage(+conv); msgr.openMessage(+conv); } catch (x) { /* reste telle quelle */ }
@@ -8264,11 +8272,15 @@
         planifierIm(conv);
         return;
       }
-      setTimeout(voir, 250);
+      setTimeout(voir, 100);
     })();
   }
   function envoiParti(conv, zone) {
     var e = etatConv(conv), relu = e.envoi && e.envoi.relu, invites = e.envoi ? e.envoi.invites || [] : [], bx = boiteConv(conv);
+    // Ta bulle reste dans le fil, « envoyé », jusqu'à ce que la conversation rouverte montre ton message (v0.131.1 : elle
+    // disparaissait le temps du rechargement, puis revenait)
+    if (e.envoi) e.parti = { texte: e.envoi.complet || e.envoi.texte, nb: e.envoi.nb, t: Date.now() };
+    if (e.parti) setTimeout(function () { if (etatsConv[conv] === e && e.parti) planifierIm(conv); }, 3100);
     if (bx) cibleReponse(bx, "");
     if (invites.length) { e.invites = (e.invites || []).filter(function (n) { return invites.indexOf(n) < 0; }); annoncerPupitre("Invité" + (invites.length > 1 ? "s" : "") + " : " + invites.join(", ")); majInvitesIm(conv); }
     e.envoi = null;
@@ -8298,6 +8310,23 @@
     if (actualiserAuRetour) { actualiserAuRetour = false; actualiserImOuvertes(); }
     Object.keys(fenetresIm).forEach(function (c) { if (c !== "nouveau") planifierIm(c); });
   });
+  // Recharger une conversation ouverte qui vient de recevoir un message. Un second message arrivé moins de 3 s après le
+  // premier était laissé de côté (v0.131.1) : il attend maintenant que la fenêtre du jeu soit revenue du rechargement
+  // précédent (deux ouvertures à la fois, le jeu refermerait la seconde), puis la conversation est relue.
+  function rechargerArrivee(c) {
+    var e = etatConv(c), ecoule = Date.now() - (e.actualise || 0), pret = ecoule >= 3000 || (ecoule >= 600 && !!boiteConv(c));
+    if (!pret) {
+      if (!e.reprise) e.reprise = setTimeout(function () {
+        e.reprise = null;
+        if (!fenetresIm[c] || etatsConv[c] !== e || e.envoi) return;
+        if (document.hidden) { actualiserAuRetour = true; return; }
+        rechargerArrivee(c);
+      }, 300);
+      return;
+    }
+    e.actualise = Date.now();
+    rouvrirConv(c);
+  }
   function actualiserImOuvertes(connues) {
     if (!fenetresIm) return;
     // Onglet en arrière-plan : rien n'est rechargé ni marqué lu avant ton retour (lot 101, M3)
@@ -8311,9 +8340,7 @@
       marquees.forEach(function (c) {
         var e = etatConv(c), bx = boiteConv(c);
         if (e.vue === "jeu" || (bx && bx.contains(document.activeElement))) { e.peutEtre = true; planifierIm(c); return; }
-        if (Date.now() - (e.actualise || 0) < 3000) return;
-        e.actualise = Date.now();
-        rouvrirConv(c);
+        rechargerArrivee(c);
       });
       return;
     }
@@ -8326,9 +8353,7 @@
     marquees.forEach(function (c) {
       var e = etatConv(c), bx = boiteConv(c);
       if (e.vue === "jeu" || (bx && bx.contains(document.activeElement))) return;
-      if (Date.now() - (e.actualise || 0) < 3000) return;
-      e.actualise = Date.now();
-      rouvrirConv(c);
+      rechargerArrivee(c);
     });
   }
   function creerFenetreIm(boite, conv) {
@@ -8397,7 +8422,7 @@
     tout.addEventListener("click", function () {
       var b = boiteConv(conv), l = b ? manquantsIm(b, conv) : [];
       if (!l.length) return;
-      if (tout.getAttribute("data-confirmer") !== "1") { tout.setAttribute("data-confirmer", "1"); tout.textContent = "Lire " + nombreFr(l.length) + " messages, un par un ? Confirmer"; clearTimeout(tout.dccDesarme); tout.dccDesarme = setTimeout(function () { tout.removeAttribute("data-confirmer"); planifierIm(conv); }, 4000); return; }
+      if (tout.getAttribute("data-confirmer") !== "1") { tout.setAttribute("data-confirmer", "1"); tout.textContent = "Lire " + nombreFr(l.length) + " messages ? Confirmer"; clearTimeout(tout.dccDesarme); tout.dccDesarme = setTimeout(function () { tout.removeAttribute("data-confirmer"); planifierIm(conv); }, 4000); return; }
       clearTimeout(tout.dccDesarme); tout.removeAttribute("data-confirmer");
       chargerIm(conv, l.reverse().map(function (m) { return m.id; }));
       fermerMenuIm();
@@ -8704,7 +8729,7 @@
           if (!ouverte) { annoncerPupitre("Nouveau message : pas de réponse du jeu, regarde dans « Messages envoyés » (brouillon gardé)"); fermerIm("nouveau", true); }
           return;
         }
-        setTimeout(voir, 250);
+        setTimeout(voir, 100);
       })();
     };
     ta.addEventListener("keydown", function (e) { if (toucheEnvoiIm(e)) { e.preventDefault(); partir(); } });
@@ -8908,7 +8933,7 @@
     majMembresIm(conv);
     ecrireSiChange(im.querySelector(".dcc-im-archiver"), convArchivees[conv] ? "Sortir des archives" : "Archiver (sur cet appareil)");
     var manque = msgs.filter(function (m) { return !m.texte && m.source !== "charge" && !enLecture(conv, m.id); }).length, bTout = im.querySelector(".dcc-im-tout");
-    if (!bTout.hasAttribute("data-confirmer")) ecrireSiChange(bTout, "Tout charger : " + nombreFr(manque) + (manque > 1 ? " messages" : " message") + ", un par un");
+    if (!bTout.hasAttribute("data-confirmer")) ecrireSiChange(bTout, "Tout charger : " + nombreFr(manque) + (manque > 1 ? " messages" : " message"));
     if (bTout.hidden !== !manque) bTout.hidden = !manque;
     // Du nouveau dans la liste du jeu pour cette conversation, pendant qu'elle est ouverte
     var li = document.getElementById("message_" + conv), nouv = im.querySelector(".dcc-im-nouv"), aDuNouveau = !!li && li.classList.contains("new") && !etat.envoi && !etat.premier;
@@ -8932,9 +8957,18 @@
     // À l'ouverture : les plus récents qui manquent sont lus auprès du jeu
     // À l'ouverture : les textes manquants, et ceux gardés avant la v0.114.1, aux lignes perdues (une fois, 15 à chaque ouverture)
     if (etat.premier) chargerIm(conv, msgs.filter(function (m) { return (!m.texte && m.source !== "charge") || m.relire; }).slice(-CHARGE_INITIAL).reverse().map(function (m) { return m.id; }));
+    else {
+      // Arrivés depuis (plusieurs messages entre deux rechargements : le jeu n'affiche que le plus récent) : les derniers
+      // sans texte sont lus tout de suite, sans attendre un clic sur « Charger » (v0.131.1). Pas ceux que le jeu n'a pas
+      // rendus (« Réessayer » reste à toi)
+      var lu = lectures[conv], recents = msgs.slice(-5).filter(function (m) { return !m.texte && m.source !== "charge" && !m.nonTexte && !enLecture(conv, m.id) && !(lu && (lu.echecs[m.id] || lu.vides[m.id])) && etat.nb && msgs.indexOf(m) >= etat.nb; });
+      if (recents.length) chargerIm(conv, recents.reverse().map(function (m) { return m.id; }));
+    }
+    // Ta réponse partie : sa bulle reste jusqu'à ce que le jeu la montre (3 s au plus, fenêtre du jeu revenue)
+    if (etat.parti && (lignesMoi(boite) > etat.parti.nb || Date.now() - etat.parti.t > 3000)) etat.parti = null;
     // Le fil, redessiné seulement s'il a changé
     var dernier = msgs.length ? msgs[msgs.length - 1].id : null, l = lectures[conv];
-    var sig = msgs.map(function (m) { return m.id + (m.texte ? ":" + m.texte.length + m.source.charAt(0) + (m.relire ? "r" : "") : m.nonTexte ? ":n" : enLecture(conv, m.id) ? ":l" : l && l.echecs[m.id] ? ":e" : l && l.vides[m.id] ? ":v" : ""); }).join(",") + "|" + etat.depuis + "|" + moi() + "|" + (epingles[conv] || []).map(function (e) { return e.id; }).join(",") + "|" + (etat.envoi ? "envoi" : "");
+    var sig = msgs.map(function (m) { return m.id + (m.texte ? ":" + m.texte.length + m.source.charAt(0) + (m.relire ? "r" : "") : m.nonTexte ? ":n" : enLecture(conv, m.id) ? ":l" : l && l.echecs[m.id] ? ":e" : l && l.vides[m.id] ? ":v" : ""); }).join(",") + "|" + etat.depuis + "|" + moi() + "|" + (epingles[conv] || []).map(function (e) { return e.id; }).join(",") + "|" + (etat.envoi ? "envoi" : etat.parti ? "parti" : "");
     var f = im.querySelector(".dcc-im-fil");
     // Un message lu auprès du jeu (« Tout charger », l'ouverture) : seule sa bulle est refaite (lot 101 bis, M5)
     if (etat.sig !== sig && !etat.premier && sigsAvant === JSON.stringify(etat.signatures) && remplacerBullesIm(boite, conv, f, msgs, etat.sig, sig)) etat.sig = sig;
@@ -8962,7 +8996,7 @@
         prec = m;
       });
       vider();
-      if (etat.envoi) { var env = el("div", "dcc-im-msg dcc-im-moi dcc-im-envoi"), bu = el("div", "dcc-im-bulle"); bu.append(corpsIm(etat.envoi.complet || etat.envoi.texte), el("span", "dcc-im-heure", "envoi…")); env.appendChild(bu); frag.appendChild(env); }
+      if (etat.envoi || etat.parti) { var env = el("div", "dcc-im-msg dcc-im-moi dcc-im-envoi" + (etat.envoi ? "" : " dcc-im-parti")), bu = el("div", "dcc-im-bulle"); bu.append(corpsIm(etat.envoi ? etat.envoi.complet || etat.envoi.texte : etat.parti.texte), el("span", "dcc-im-heure", etat.envoi ? "envoi…" : "envoyé")); env.appendChild(bu); frag.appendChild(env); }
       if (!msgs.length) frag.appendChild(el("p", "dcc-im-vide", "Aucun message dans cette conversation."));
       f.textContent = "";
       f.appendChild(frag);
@@ -12825,6 +12859,10 @@
   // « Copier le compte rendu » en fait un texte à coller. Rien n'est testé à ta place et rien ne paraît hors de cette fiche.
   // Un point reste tant qu'il n'est pas retiré de cette liste par une version suivante ; ses réponses sont gardées par numéro.
   var RECETTE = [
+    ["0.131.1", "Courrier plus rapide", [
+      ["1311-ouvrir", "Courrier : à l'ouverture d'une conversation, les bulles « Chargement… » se remplissent en une seconde environ, plus une à une"],
+      ["1311-envoi", "Courrier : après « Envoyer », ta bulle reste affichée (« envoyé ») jusqu'à ce que le message apparaisse, sans disparaître entre-temps"],
+      ["1311-recu", "Courrier : deux messages reçus coup sur coup dans une conversation ouverte s'affichent tous les deux, sans cliquer sur « Charger »"]]],
     ["0.131.0", "Garde-fous", [
       ["131-poster", "Forum : un double clic sur « Poster » ne publie qu'une fois, et une ligne dit que le second n'est pas parti"],
       ["131-code", "Forum : un long bloc [code] revient à la ligne au lieu d'élargir le message"],
