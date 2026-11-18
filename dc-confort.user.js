@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DC Confort
 // @namespace    deck.local
-// @version      0.133.0
+// @version      0.134.0
 // @updateURL    https://raw.githubusercontent.com/Shinsudo/dreadcast-scripts/main/dc-confort.meta.js
 // @downloadURL  https://raw.githubusercontent.com/Shinsudo/dreadcast-scripts/main/dc-confort.user.js
 // @description  Rend l'écran de Dreadcast et son forum plus lisibles. Le Courrier, façon DDM V2, lit les messages auprès du jeu et envoie tes réponses, à ta demande seulement.
@@ -48,7 +48,7 @@
    Repères du jeu : DOM-JEU.md (relevés du 23 et du 24/10/2026). */
 (function () {
   "use strict";
-  var VERSION = "0.133.0";
+  var VERSION = "0.134.0";
   var racine = document.documentElement;
   // Les éléments que DC Confort crée : un changement fait dedans ne relance pas l'observateur (audit de phase 6, n° 14)
   var nos = typeof WeakSet === "function" ? new WeakSet() : null;
@@ -1405,16 +1405,45 @@
   // Fondations : 110 ms (onglet, rebond), 220 ms (ouverture, jauge), 500 ms pour un fond qui s'éteint ; la position,
   // la transparence ou une couleur seulement, immobile ensuite. Tout est coupé sous « Aucun », sous « Réduire les animations »
   // du système et en combat, sauf l'anneau du tour. « Expressif » ajoute les rebonds et le liseré des notifications.
-  var MV = { court: 110, moyen: 220, long: 220, fond: 500, entree: "cubic-bezier(.2,.8,.2,1)" };
+  var MV = { court: 110, menu: 180, moyen: 220, long: 220, fond: 500, entree: "cubic-bezier(.2, .8, .2, 1)", sortie: "cubic-bezier(.4, 0, 1, 1)" };
   function mouvementPermis(memeEnCombat) { return reglages.actif && mouvementEffectif() !== "aucun" && (!!memeEnCombat || !enCombat); }
+  // Lot U2 (WCAG 2.3.3, technique C39) : sous « Réduire les animations » du système, rien ne se déplace ni ne grandit,
+  // mais les fondus courts restent (transparence, couleur) : ils disent ce qui change sans mouvement. « Aucun » coupe tout.
+  function fondusPermis(memeEnCombat) { return reglages.actif && mvtReduit.matches && reglages.mouvement !== "aucun" && (!!memeEnCombat || !enCombat); }
+  var DEPLACEMENTS = ["translate", "scale", "rotate", "transform", "transformOrigin", "clipPath", "width", "height", "left", "top"];
+  function sansDeplacement(images) {
+    var garde = images.map(function (i) {
+      var c = {};
+      Object.keys(i).forEach(function (k) { if (DEPLACEMENTS.indexOf(k) < 0) c[k] = i[k]; });
+      return c;
+    });
+    return garde.some(function (c) { return Object.keys(c).some(function (k) { return k !== "offset" && k !== "easing"; }); }) ? garde : null;
+  }
   function animer(cible, images, duree, opts) {
     opts = opts || {};
-    if (!cible || !cible.animate || !mouvementPermis(opts.combat) || (opts.expressif && mouvementEffectif() !== "expressif")) return null;
+    if (!cible || !cible.animate) return null;
+    if (!mouvementPermis(opts.combat)) {
+      if (opts.expressif || !fondusPermis(opts.combat)) return null;
+      images = sansDeplacement(images);
+      if (!images) return null;
+    } else if (opts.expressif && mouvementEffectif() !== "expressif") return null;
+    var courbe = opts.sortie ? MV.sortie : MV.entree;
     // Un départ retardé garde l'état de départ pendant l'attente (sinon l'élément se montrerait, puis s'éteindrait)
-    return cible.animate(images, opts.delai ? { duration: duree, easing: MV.entree, delay: opts.delai, fill: "backwards" } : { duration: duree, easing: MV.entree });
+    return cible.animate(images, opts.delai ? { duration: duree, easing: courbe, delay: opts.delai, fill: "backwards" } : { duration: duree, easing: courbe });
   }
   // Une seule image clé, au départ : l'animation revient d'elle-même à l'état normal de l'élément
   var OUVERTURE = [{ opacity: 0, scale: ".98", offset: 0 }];
+  // Lot U2 (UX in Motion : relation, continuité) : une fenêtre ouverte dans la seconde et demie qui suit un clic grandit
+  // depuis ce point (sa ligne, sa notification, un nom) ; ouverte au clavier ou par le jeu, elle s'ouvre sur place
+  var dernierGeste = null;
+  document.addEventListener("pointerdown", function (ev) { dernierGeste = { x: ev.clientX, y: ev.clientY, t: Date.now() }; }, { capture: true, passive: true });
+  function ouvrirDepuis(w) {
+    var g = dernierGeste, r = w && w.isConnected ? w.getBoundingClientRect() : null;
+    if (!g || Date.now() - g.t > 1500 || !r || !r.width || !mouvementPermis()) return animer(w, OUVERTURE, MV.moyen);
+    // Le point d'origine, dans le repère de la fenêtre (il peut tomber hors d'elle : elle glisse alors un peu vers lui)
+    var o = Math.round((g.x - r.left) * w.offsetWidth / r.width) + "px " + Math.round((g.y - r.top) * w.offsetHeight / r.height) + "px";
+    return animer(w, [{ opacity: 0, scale: ".85", transformOrigin: o }, { opacity: 1, scale: "1", transformOrigin: o }], MV.menu);
+  }
   function eteindre(cible, couleur, opts) { return animer(cible, [{ backgroundColor: couleur, offset: 0 }], MV.fond, opts); }
   function rebondir(cible) { return animer(cible, [{ translate: "0 0" }, { translate: "0 -3px" }, { translate: "0 0" }], MV.court, { expressif: true }); }
   function fondre(cible) { return animer(cible, [{ opacity: 0, offset: 0 }], MV.court); }
@@ -1481,6 +1510,8 @@
     // (devant les pions du jeu, dans #carte), ordre des tours (sous celui du jeu, 9 999), menu du bandeau
     pion: 2, bulles: 5, pionCombat: 6, porteur: 136, survol: 140, tours: 1003, menuJeu: 300050 };
   var JETONS = "--dcc-h-s: 28px; --dcc-h-m: 36px; --dcc-h-l: 44px; --dcc-d-survol: 90ms; --dcc-d-fondu: 110ms; --dcc-d-menu: 180ms; --dcc-d-panneau: 220ms; --dcc-d-trace: 500ms; --dcc-d-attente: 4s;" +
+    // Lot U2 : deux courbes. Ce qui entre décélère (arrive vite, se pose doucement), ce qui sort accélère (part sans traîner)
+    " --dcc-c-entree: cubic-bezier(.2, .8, .2, 1); --dcc-c-sortie: cubic-bezier(.4, 0, 1, 1);" +
     " --dcc-ardoise-1: #06091a; --dcc-ardoise-2: #0a0f1a; --dcc-ardoise-3: #141e31; --dcc-ardoise-4: #18233a; --dcc-ardoise-5: #1f2c47;" +
     " --dcc-ardoise-6: #263550; --dcc-ardoise-7: #34476a; --dcc-ardoise-8: #4a5f86; --dcc-ardoise-9: " + V3.pale + "; --dcc-ardoise-10: " + V3.calme + ";" +
     " --dcc-ardoise-11: " + V3.texte + "; --dcc-ardoise-12: " + V3.titre + "; --dcc-acc-vif: " + V3.accVif + "; --dcc-danger-doux: " + V3.dangerDoux + ";" +
@@ -1721,7 +1752,7 @@
   // classes de html, l'attribut data-dcc-anime de son hôte, posé par marquerMouvement)
   var KIT_MOUVEMENT = [
     "A K { transition: background-color var(--dcc-k-duree) ease, border-color var(--dcc-k-duree) ease, color var(--dcc-k-duree) ease, box-shadow var(--dcc-k-duree) ease, transform var(--dcc-k-duree) ease; }",
-    "A .dcc-k-liste:not([hidden]) { animation: dcc-k-ouvre var(--dcc-d-menu) cubic-bezier(.2, .7, .3, 1); transform-origin: top right; }",
+    "A .dcc-k-liste:not([hidden]) { animation: dcc-k-ouvre var(--dcc-d-menu) var(--dcc-c-entree); transform-origin: top right; }",
     "@keyframes dcc-k-ouvre { from { opacity: 0; transform: translateY(-4px) scale(.98); } to { opacity: 1; transform: none; } }"
   ];
   // « K » est le sélecteur de base, partout où il apparaît seul
@@ -2139,7 +2170,7 @@
     "html.dcc-maquette .dcc-presents.dcc-rail { left: auto; right: auto; top: var(--dcc-pr-y, 8px); width: 58px; max-height: var(--dcc-pr-h, 60vh); overflow: hidden; border-radius: 8px;",
     "  background: rgb(5 12 18 / .78); box-shadow: inset 0 0 0 1px rgb(var(--dcc-filet-rvb) / .16), 0 8px 20px rgb(0 0 0 / .4); transition: none; outline: none; }",
     "html.dcc-maquette .dcc-presents.dcc-rail[data-cote='d'] { right: var(--dcc-pr-r, 8px); } html.dcc-maquette .dcc-presents.dcc-rail[data-cote='g'] { left: var(--dcc-pr-x, 8px); }",
-    "html.dcc-anime.dcc-maquette .dcc-presents.dcc-rail { transition: width var(--dcc-d-menu) cubic-bezier(.2,.8,.2,1); }",
+    "html.dcc-anime.dcc-maquette .dcc-presents.dcc-rail { transition: width var(--dcc-d-menu) var(--dcc-c-entree); }",
     "html.dcc-maquette .dcc-presents.dcc-rail:is(:hover, :focus-within) { background: rgb(5 12 18 / .94); }",
     "html.dcc-maquette .dcc-presents.dcc-rail:focus-visible { box-shadow: inset 0 0 0 2px var(--dcc-acc); }",
     ".dcc-rail .dcc-rail-tete { display: flex; align-items: center; gap: 8px; min-height: 30px; padding: 4px 8px; white-space: nowrap; overflow: hidden; color: var(--dcc-t2); font: 600 12px var(--dcc-chiffres); }",
@@ -2686,7 +2717,7 @@
     "  font-size: 0 !important; border-radius: 50%; z-index: 0; background: radial-gradient(closest-side, var(--dcc-ardoise-3) 82%, transparent 84%), conic-gradient(var(--dcc-acc) calc(var(--dcc-prog, 100) * 1%), rgb(255 255 255 / .1) 0) !important; }",
     "html.dcc-barre-carte #zone_fiche #action_actuelle > .icon { z-index: 1; }",
     // Le filet d'un panneau s'allonge sous la souris (200 ms)
-    "html.dcc-maquette.dcc-anime :is(#zone_fiche, #zone_inventaire, #zone_travail_logement, #zone_quete, #zone_centre, #zone_messagerie, #zone_carnet, #zone_chat_bg)::before { transition: width var(--dcc-d-menu) cubic-bezier(.2,.8,.2,1), background-color var(--dcc-d-trace), box-shadow var(--dcc-d-trace); }",
+    "html.dcc-maquette.dcc-anime :is(#zone_fiche, #zone_inventaire, #zone_travail_logement, #zone_quete, #zone_centre, #zone_messagerie, #zone_carnet, #zone_chat_bg)::before { transition: width var(--dcc-d-menu) var(--dcc-c-entree), background-color var(--dcc-d-trace), box-shadow var(--dcc-d-trace); }",
     "html.dcc-maquette :is(#zone_fiche, #zone_inventaire, #zone_travail_logement, #zone_quete, #zone_centre, #zone_messagerie, #zone_carnet, #zone_chat_bg):hover::before { width: 64px; }",
     // Barres de défilement fines dans les panneaux
     "html.dcc-maquette :is(#zone_inventaire, #zone_quete, #chatContent, #zone_travail_logement) { scrollbar-width: thin; scrollbar-color: rgb(var(--dcc-filet-rvb) / .35) transparent; }",
@@ -2794,12 +2825,12 @@
     ".dcc-im-bulle.dcc-t-deck { box-shadow: inset 2px 0 0 color-mix(in srgb, var(--dcc-tr) 70%, transparent); }",
     ".dcc-t-deck .dcc-im-corps { font: 13px/1.5 'Cascadia Mono', Consolas, monospace; }",
     ".dcc-im-bulle.dcc-t-hrp { background: transparent !important; color: var(--dcc-t2); box-shadow: inset 0 0 0 1px rgb(var(--dcc-filet-rvb) / .24); } .dcc-t-hrp .dcc-im-corps { font-size: 13px; font-style: italic; }",
-    "html.dcc-anime .dcc-im-msg.dcc-im-arrive .dcc-im-bulle { animation: dcc-arrivee var(--dcc-d-panneau) cubic-bezier(.2, .7, .2, 1) 1; }",
+    "html.dcc-anime .dcc-im-msg.dcc-im-arrive .dcc-im-bulle { animation: dcc-arrivee var(--dcc-d-panneau) var(--dcc-c-entree) 1; }",
     "@keyframes dcc-arrivee { from { clip-path: inset(0 100% 0 0); opacity: .5; } to { clip-path: inset(0 0 0 0); opacity: 1; } }",
     // Lot U1 : le signe d'attente, un trait fin au bas de ce qui attend le jeu ; il avance une fois (4 s), sans boucle
     ".dcc-attente-rel { position: relative; }",
     ".dcc-attente { position: absolute; left: 0; bottom: 0; width: 100%; height: 2px; z-index: 3; pointer-events: none; background: var(--dcc-acc); opacity: .7; transform-origin: 0 50%; transform: scaleX(.85); }",
-    "html.dcc-anime .dcc-attente { animation: dcc-attente var(--dcc-d-attente) cubic-bezier(.2, .8, .2, 1) both; }",
+    "html.dcc-anime .dcc-attente { animation: dcc-attente var(--dcc-d-attente) var(--dcc-c-entree) both; }",
     "@keyframes dcc-attente { from { transform: scaleX(0); } to { transform: scaleX(.85); } }",
     ".dcc-im-apparence { flex: none; display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border-bottom: 1px solid rgb(var(--dcc-filet-rvb) / .14); background: rgb(4 8 16 / .6); } .dcc-im-apparence[hidden] { display: none; }",
     ".dcc-im-ap-rang { display: flex; align-items: center; gap: 10px; } .dcc-im-ap-titre { flex: 0 0 128px; color: var(--dcc-t3); font: 600 11px var(--dcc-chiffres); letter-spacing: .1em; text-transform: uppercase; }",
@@ -3040,8 +3071,8 @@
     // Qui parle : trois ondes à sa teinte à chaque réplique (2,4 s), puis plus rien ; data-dcc-onde change de lettre à chaque
     // réplique pour relancer l'animation. Mouvement réduit : l'anneau plein suffit
     "html.dcc-anime.dcc-maquette:not(.dcc-combat) #zone_carte .icon_perso > .dcc-pion.dcc-parle[data-dcc-onde] > .dcc-rang-0::before { content: ''; position: absolute; inset: 0; border-radius: 50%; pointer-events: none; }",
-    "html.dcc-anime.dcc-maquette:not(.dcc-combat) #zone_carte .icon_perso > .dcc-pion.dcc-parle[data-dcc-onde='a'] > .dcc-rang-0::before { animation: dcc-onde-a .8s cubic-bezier(.2, .7, .2, 1) 3; }",
-    "html.dcc-anime.dcc-maquette:not(.dcc-combat) #zone_carte .icon_perso > .dcc-pion.dcc-parle[data-dcc-onde='b'] > .dcc-rang-0::before { animation: dcc-onde-b .8s cubic-bezier(.2, .7, .2, 1) 3; }",
+    "html.dcc-anime.dcc-maquette:not(.dcc-combat) #zone_carte .icon_perso > .dcc-pion.dcc-parle[data-dcc-onde='a'] > .dcc-rang-0::before { animation: dcc-onde-a .8s var(--dcc-c-entree) 3; }",
+    "html.dcc-anime.dcc-maquette:not(.dcc-combat) #zone_carte .icon_perso > .dcc-pion.dcc-parle[data-dcc-onde='b'] > .dcc-rang-0::before { animation: dcc-onde-b .8s var(--dcc-c-entree) 3; }",
     "@keyframes dcc-onde-a { from { box-shadow: 0 0 0 0 var(--dcc-qui, var(--dcc-acc)); } to { box-shadow: 0 0 0 12px transparent; } }",
     "@keyframes dcc-onde-b { from { box-shadow: 0 0 0 0 var(--dcc-qui, var(--dcc-acc)); } to { box-shadow: 0 0 0 12px transparent; } }",
     ZC121 + " .icon_perso:hover" + AV0 + ", " + ZC121 + " .icon_perso > .dcc-pion:is(.dcc-lie, .dcc-designe) > .dcc-rang-0 > .dcc-av { box-shadow: " + FOND_ANNEAU + "0 0 0 3px var(--dcc-qui, var(--dcc-acc)), 0 0 10px var(--dcc-qui, var(--dcc-acc)) !important; }",
@@ -3513,8 +3544,8 @@
     W124 + " .dcc-im-a-saisie { flex: 1 1 120px; min-width: 120px; height: 28px !important; margin: 0 !important; padding: 0 4px !important; border: 0 !important; background: transparent !important; box-shadow: none !important; outline: none !important; }",
     // Mouvement : les menus s'ouvrent en 120 ms, ⌄ apparaît en fondu (rien si tu as demandé moins d'animations)
     // (sous dcc-anime, comme tout le reste : coupé par « Mouvement : aucun », en combat et par le réglage du système)
-    L124.replace("html.dcc-maquette", "html.dcc-maquette.dcc-anime") + " li.message > .dcc-l-menu { transition: opacity .12s ease; }",
-    L124.replace("html.dcc-maquette", "html.dcc-maquette.dcc-anime") + " > .dcc-l-pop, " + W124.replace("html.dcc-maquette", "html.dcc-maquette.dcc-anime") + " :is(.dcc-im-emenu, .dcc-im-bmenu):not([hidden]) { animation: dccPop124 .12s ease-out both; }",
+    L124.replace("html.dcc-maquette", "html.dcc-maquette.dcc-anime") + " li.message > .dcc-l-menu { transition: opacity var(--dcc-d-fondu) var(--dcc-c-entree); }",
+    L124.replace("html.dcc-maquette", "html.dcc-maquette.dcc-anime") + " > .dcc-l-pop, " + W124.replace("html.dcc-maquette", "html.dcc-maquette.dcc-anime") + " :is(.dcc-im-emenu, .dcc-im-bmenu):not([hidden]) { animation: dccPop124 var(--dcc-d-fondu) var(--dcc-c-entree) both; }",
     "@keyframes dccPop124 { from { opacity: 0; transform: translateY(-3px); } to { opacity: 1; transform: none; } }"
   ];
 
@@ -4054,7 +4085,7 @@
     ".dcc-jauge circle { fill: none; stroke-width: 6; }",
     ".dcc-jauge .a-rail { stroke: rgb(255 255 255 / .1); }",
     ".dcc-jauge .a-sante { stroke: var(--dcc-danger); } .dcc-jauge .a-forme { stroke: var(--dcc-forme); }",
-    "html.dcc-anime .dcc-jauge .a-sante, html.dcc-anime .dcc-jauge .a-forme { transition: stroke-dasharray var(--dcc-d-panneau) ease-out; }",
+    "html.dcc-anime .dcc-jauge .a-sante, html.dcc-anime .dcc-jauge .a-forme { transition: stroke-dasharray var(--dcc-d-panneau) var(--dcc-c-entree); }",
     ".dcc-jauge .dcc-medaille { position: absolute; left: 50%; bottom: -4px; transform: translateX(-50%); min-width: 30px; height: 20px; padding: 0 6px; box-sizing: border-box;",
     "  display: grid; place-items: center; font: 700 13px/1 var(--dcc-chiffres); font-variant-numeric: tabular-nums; color: var(--dcc-encre-or);",
     "  background: linear-gradient(#e6c574, rgb(var(--dcc-or-rvb)) 55%, #a8812f); box-shadow: inset 0 0 0 1px rgb(255 240 200 / .55);",
@@ -4406,9 +4437,9 @@
     "html.dcc-maquette #equipement_inventaire .case_objet:not(.dcc-mun-basses):not(.dcc-mun-vide) > .dcc-mun-nb { background: rgb(6 10 20 / .82); color: var(--dcc-t1); font-weight: 600; }",
     // Mouvement : la fin d'une bulle, les jauges du jeu qui glissent vers leur valeur et le survol de l'horloge, seulement
     // quand le mouvement est permis (ni « Aucun », ni « Réduire les animations », ni combat)
-    "html.dcc-anime .dcc-bulles > .dcc-bulle.dcc-fin { transition: opacity var(--dcc-d-panneau); }",
+    "html.dcc-anime .dcc-bulles > .dcc-bulle.dcc-fin { transition: opacity var(--dcc-d-panneau) var(--dcc-c-sortie); }",
     "html.dcc-maquette.dcc-anime #barre_sante .barre_etat, html.dcc-maquette.dcc-anime #barre_forme .barre_etat, html.dcc-maquette.dcc-anime #barre_experience .barre_etat {",
-    "  transition: width var(--dcc-d-panneau) cubic-bezier(.2,.8,.2,1); }",
+    "  transition: width var(--dcc-d-panneau) var(--dcc-c-entree); }",
     "html.dcc-anime #onglets_chat li.dcc-hist { transition: color var(--dcc-d-survol), background-color var(--dcc-d-survol); }",
     // Notifications : une notification qui ne demande rien est rangée de l'écran après 20 s (masquée, jamais cliquée) ;
     // elle reste dans l'historique du panneau. Laissé à DC Notif' tant qu'il est là.
@@ -8902,7 +8933,7 @@
     brancherFenetreIm(w, conv, tete);
     placerFenetreIm(w, Object.keys(fenetresIm).length);
     document.body.appendChild(w);
-    animer(w, OUVERTURE, MV.moyen);
+    ouvrirDepuis(w);
     fenetresIm[conv] = w;
     appliquerThemeIm(conv);
     brancherListeMessages();
@@ -9101,7 +9132,7 @@
     brancherFenetreIm(w, "nouveau", tete);
     placerFenetreIm(w, Object.keys(fenetresIm).length);
     document.body.appendChild(w);
-    animer(w, OUVERTURE, MV.moyen);
+    ouvrirDepuis(w);
     fenetresIm.nouveau = w;
     devantIm("nouveau");
     // Le brouillon pour un autre destinataire reste gardé tant que tu n'écris rien ici
@@ -9677,7 +9708,7 @@
       remplirNotifs();
       fenNotifs.style.top = Math.round(r ? r.bottom + 6 : 40) + "px";
       fenNotifs.style.left = Math.round(Math.max(8, Math.min(window.innerWidth - 328, r ? r.right - 320 : window.innerWidth))) + "px";
-      animer(fenNotifs, OUVERTURE, MV.moyen);
+      ouvrirDepuis(fenNotifs);
       fenNotifs.focus();
     } else if (retourNotifs && retourNotifs.isConnected && retourNotifs.focus) retourNotifs.focus();
     majCloche();
@@ -9873,7 +9904,7 @@
     if (oui && fenAitl.hidden) retourAitl = document.activeElement;
     fenAitl.hidden = !oui;
     hoteAitl.style.setProperty("display", oui ? "block" : "none", "important");
-    if (oui) { animer(fenAitl, OUVERTURE, MV.moyen); fenAitl.querySelector("textarea").focus(); }
+    if (oui) { ouvrirDepuis(fenAitl); fenAitl.querySelector("textarea").focus(); }
     else if (avait && retourAitl && retourAitl !== document.body && retourAitl.isConnected && retourAitl.focus) { retourAitl.focus(); retourAitl = null; }
   }
   var retourAitl = null;
@@ -10696,7 +10727,7 @@
     if (oui) {
       retourHisto = document.activeElement;
       majFenHisto();
-      animer(fenHisto, OUVERTURE, MV.moyen);
+      ouvrirDepuis(fenHisto);
       fenHisto.querySelector("input").focus();
     } else if (retourHisto && retourHisto.focus) retourHisto.focus();
   }
@@ -12147,7 +12178,7 @@
     visite.addEventListener("keydown", function (e) { if (e.key === "Escape") { e.stopPropagation(); fermer(); } });
     visite.append(el("b", null, "L'agencement Maquette en cinq gestes"), ul, ok);
     document.body.appendChild(visite);
-    animer(visite, OUVERTURE, MV.moyen);
+    ouvrirDepuis(visite);
   }
   function majMiniMoi() {
     var zc = document.getElementById("zone_centre");
@@ -13192,7 +13223,7 @@
       palSel = 0;
       palEntrees = null;
       filtrerPalette();
-      animer(bt, OUVERTURE, MV.moyen);
+      ouvrirDepuis(bt);
       (palImport ? z : c).focus();
     } else if (!sansRetour && palRetour && palRetour.focus && palRetour.isConnected) palRetour.focus();
   }
@@ -13226,6 +13257,10 @@
   // « Copier le compte rendu » en fait un texte à coller. Rien n'est testé à ta place et rien ne paraît hors de cette fiche.
   // Un point reste tant qu'il n'est pas retiré de cette liste par une version suivante ; ses réponses sont gardées par numéro.
   var RECETTE = [
+    ["0.134.0", "Mouvement : d'où vient une fenêtre", [
+      ["134-origine", "Courrier : une conversation ouverte d'un clic dans la liste grandit depuis sa ligne, pas du centre"],
+      ["134-clavier", "Ctrl K : la palette ouverte au clavier s'ouvre sur place, sans glisser"],
+      ["134-reduit", "Avec « Réduire les animations » du système : plus rien ne glisse ni ne grandit, mais les fenêtres apparaissent en fondu court"]]],
     ["0.133.0", "Signaux plus calmes, un seul signe d'attente", [
       ["133-attente", "Courrier : en ouvrant une conversation lente, un trait fin avance sous sa ligne, puis part quand la fenêtre arrive"],
       ["133-suite", "Courrier : en bas de la liste, un trait fin au pied pendant que la suite charge ; rien de plus à la fin du dossier"],
@@ -14204,7 +14239,7 @@
     if (nbErreurs) etat.appendChild(el("div", "erreurs-dcc", "Erreurs : " + nbErreurs + " (" + Object.keys(erreurs).join(", ") + "). DC Confort continue ; le détail est dans la console du navigateur."));
     if (etatNeuvo) { var nv = el("div"); nv.appendChild(document.createTextNode("Neuvopack : ")); nv.appendChild(el("b", null, etatNeuvo)); etat.appendChild(nv); }
     var d = el("div"); d.appendChild(document.createTextNode("Pont DECK : ")); d.appendChild(el("b", null, pr ? "relié, v" + pr.version : "absent")); etat.appendChild(d);
-    if (mvtReduit.matches) etat.appendChild(el("div", null, "« Réduire les animations » du système est actif : aucun mouvement."));
+    if (mvtReduit.matches) etat.appendChild(el("div", null, "« Réduire les animations » du système est actif : rien ne bouge, seuls des fondus courts restent."));
   }
   // Panneau ouvert : seule la section « État » est refaite, ce que tu écris ailleurs dans le panneau ne bouge pas
   function majSectionEtat() {
@@ -14326,7 +14361,7 @@
       nonVues = 0; majCloche();
       retourFocus = document.activeElement;
       var pan = ombre.querySelector(".p");
-      animer(pan, OUVERTURE, MV.moyen);
+      ouvrirDepuis(pan);
       dessinerPanneau();
       pan.focus();
     } else if (retourFocus && retourFocus.focus) retourFocus.focus();
