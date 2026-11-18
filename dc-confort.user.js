@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DC Confort
 // @namespace    deck.local
-// @version      0.131.1
+// @version      0.133.0
 // @updateURL    https://raw.githubusercontent.com/Shinsudo/dreadcast-scripts/main/dc-confort.meta.js
 // @downloadURL  https://raw.githubusercontent.com/Shinsudo/dreadcast-scripts/main/dc-confort.user.js
 // @description  Rend l'écran de Dreadcast et son forum plus lisibles. Le Courrier, façon DDM V2, lit les messages auprès du jeu et envoie tes réponses, à ta demande seulement.
@@ -48,7 +48,7 @@
    Repères du jeu : DOM-JEU.md (relevés du 23 et du 24/10/2026). */
 (function () {
   "use strict";
-  var VERSION = "0.131.1";
+  var VERSION = "0.133.0";
   var racine = document.documentElement;
   // Les éléments que DC Confort crée : un changement fait dedans ne relance pas l'observateur (audit de phase 6, n° 14)
   var nos = typeof WeakSet === "function" ? new WeakSet() : null;
@@ -1235,9 +1235,125 @@
 })(window);
   /* fonds:fin */
 
+  /* souterrains:debut */
+/* DC Confort — zones des créatures des souterrains.
+   D'après le tableau récapitulatif du « Guide de survie en ST » (Mitsuko, réactualisé 1/376.1) et le « Memo ST »
+   (Maatheo, d'après Lady Arianhold), copiés le 17/11/2026.
+   La sûreté d'une créature est la première distance où elle ne t'attaque plus (« attaque à 9 m, sûreté 10 m », note 5 du
+   guide). Le jeu compte les distances en cases, |dx| + |dy| (Combat.showArea dans son code) : la zone est un losange.
+   Quand les guides donnent une fourchette (« 7 - 10 »), le bas est sûr d'être dangereux, le reste est une bande « peut-être ».
+   Module pur : il reconnaît une créature à son nom ou à son avatar et calcule les cases ; le script dessine. */
+(function (racine) {
+  "use strict";
+  // surete : première case sûre ; sureteMax : première case sûre à coup sûr (bande « peut-être » entre les deux)
+  var CREATURES = {
+    "rat":       { nom: "Rat", surete: 7, depl: "9 à 11", degats: "élevés", attaque: "corps à corps" },
+    "roi-rats":  { nom: "Roi des rats", surete: 7, depl: "3", degats: "moyens", attaque: "corps à corps" },
+    "bebe-rat":  { nom: "Bébé rat", surete: 0, depl: "?", degats: "forts", attaque: "corps à corps", note: "inoffensif si on ne l'attaque pas" },
+    "mutant-t1": { nom: "Mutant T1", surete: 9, sureteMax: 10, depl: "9", degats: "faibles", attaque: "corps à corps", note: "tentacules" },
+    "mutant-t2": { nom: "Mutant T2", surete: 7, sureteMax: 10, depl: "9", degats: "moyens", attaque: "corps à corps", note: "celui du labo attaque à 9 m" },
+    "mutant-t3": { nom: "Mutant T3", surete: 7, depl: "9", degats: "élevés", attaque: "corps à corps", note: "bras longs" },
+    "androide":  { nom: "Androïde", surete: 0, sureteMax: 9, depl: "9", degats: "très élevés", attaque: "tir 8 m", note: "seuls ceux des téléporteurs attaquent" },
+    "cyclo":     { nom: "Cyclo", surete: 9, depl: "1", degats: "faibles", attaque: "corps à corps" },
+    "garde":     { nom: "Garde", surete: 0, sureteMax: 9, depl: "?", degats: "très très élevés", attaque: "tir 11 m", note: "tir critique en fin de vie" },
+    "exo-rouge": { nom: "Exogène rouge", surete: 7, sureteMax: 9, depl: "11", degats: "très élevés", attaque: "corps à corps", note: "bondit loin, change de place au réveil" },
+    "exo-blanc": { nom: "Exogène blanc", surete: 7, sureteMax: 9, depl: "11", degats: "faibles", attaque: "corps à corps", note: "te suit s'il te voit" },
+    "exogene":   { nom: "Exogène", surete: 7, sureteMax: 9, depl: "?", degats: "?", attaque: "?" }
+  };
+  // Dans l'ordre : le plus précis d'abord (« bébé rat » avant « rat », « exogène rouge » avant « exogène »).
+  // Les avatars cités par le Memo ST : Bébé_rat, Ratosorus, Ratiusr, Rat-2jbf, Cyclo-2, Humain-2dIH (rouge), Humain-vtmn (blanc).
+  var MOTIFS = [
+    [/bebe[ _-]?rat/, "bebe-rat"],
+    [/ratosorus|roi des rats/, "roi-rats"],
+    [/androide/, "androide"],
+    [/^gardes?\b|garde du teleporteur/, "garde"],
+    [/^cyclo/, "cyclo"],
+    [/mutant/, "mutant"],
+    [/humain-2dih|exogene rouge/, "exo-rouge"],
+    [/humain-vtmn|exogene blanc/, "exo-blanc"],
+    [/exogene/, "exogene"],
+    [/^rats?\b|^rat[-_ ]|^ratiusr/, "rat"]
+  ];
+  function simple(t) {
+    return String(t || "").normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/\s+/g, " ").trim().toLowerCase();
+  }
+  // Le nom du fichier d'un avatar, sans dossier ni extension (« …/avatars/B%C3%A9b%C3%A9_rat.png » → « bébé_rat »)
+  function fichierAvatar(src) {
+    var f = String(src || "").replace(/[?#].*$/, "").split("/").pop() || "";
+    try { f = decodeURIComponent(f); } catch (e) { /* nom laissé tel quel */ }
+    return f.replace(/\.[a-z0-9]+$/i, "");
+  }
+  function selon(texte) {
+    var t = simple(texte);
+    if (!t) return null;
+    for (var i = 0; i < MOTIFS.length; i++) {
+      if (!MOTIFS[i][0].test(t)) continue;
+      if (MOTIFS[i][1] !== "mutant") return MOTIFS[i][1];
+      // Sans classe lisible, un mutant compte pour un T1 : le plus large, donc le plus prudent
+      var c = t.match(/(?:^|[^a-z0-9])(?:t|type|classe) ?([123])(?![0-9])/);
+      return "mutant-t" + (c ? c[1] : "1");
+    }
+    return null;
+  }
+  // La clé d'une créature d'après son nom affiché, puis son avatar ; null pour qui n'en est pas une
+  function reconnaitre(nom, avatar) { return selon(nom) || selon(fichierAvatar(avatar)); }
+
+  function distance(a, b) { return Math.abs(a.x - b.x) + Math.abs(a.y - b.y); }
+  // Les cases d'un losange de rayon r autour de c (rayon < 0 : aucune), dans la carte (cols × lignes)
+  function losange(c, r, cols, lignes, f) {
+    for (var dy = -r; dy <= r; dy++) {
+      var reste = r - Math.abs(dy), y = c.y + dy;
+      if (y < 0 || y >= lignes) continue;
+      for (var dx = -reste; dx <= reste; dx++) { var x = c.x + dx; if (x >= 0 && x < cols) f(x, y); }
+    }
+  }
+  // Les cases dangereuses (sûreté − 1 et moins) et la bande « peut-être » (jusqu'à sureteMax − 1), réunies pour toutes
+  // les créatures : une case est comptée une fois, même dans plusieurs zones. creatures : [{ x, y, cle }]
+  function cases(creatures, cols, lignes) {
+    var danger = Object.create(null), peutEtre = Object.create(null);
+    (creatures || []).forEach(function (c) {
+      var d = CREATURES[c.cle];
+      if (!d) return;
+      losange(c, d.surete - 1, cols, lignes, function (x, y) { danger[x + "_" + y] = true; });
+      if (d.sureteMax > d.surete) losange(c, d.sureteMax - 1, cols, lignes, function (x, y) { peutEtre[x + "_" + y] = true; });
+    });
+    Object.keys(danger).forEach(function (k) { delete peutEtre[k]; });
+    return { danger: danger, peutEtre: peutEtre };
+  }
+  // Deux tracés SVG pour un ensemble de cases de taille t : le remplissage (un carré par case) et le contour (les seuls
+  // côtés qui bordent une case hors de l'ensemble : les zones voisines n'ont pas de trait entre elles)
+  function chemins(ens, t) {
+    var plein = [], bord = [];
+    Object.keys(ens).forEach(function (k) {
+      var p = k.split("_"), x = +p[0], y = +p[1], X = x * t, Y = y * t;
+      plein.push("M" + X + " " + Y + "h" + t + "v" + t + "h-" + t + "z");
+      if (!ens[x + "_" + (y - 1)]) bord.push("M" + X + " " + Y + "h" + t);
+      if (!ens[x + "_" + (y + 1)]) bord.push("M" + X + " " + (Y + t) + "h" + t);
+      if (!ens[(x - 1) + "_" + y]) bord.push("M" + X + " " + Y + "v" + t);
+      if (!ens[(x + 1) + "_" + y]) bord.push("M" + (X + t) + " " + Y + "v" + t);
+    });
+    return { plein: plein.join(""), bord: bord.join("") };
+  }
+  // Où tu en es face à une créature : « danger », « peut-être » ou « sûr »
+  function situation(cle, d) {
+    var c = CREATURES[cle];
+    if (!c) return "sûr";
+    return d < c.surete ? "danger" : d < (c.sureteMax || 0) ? "peut-être" : "sûr";
+  }
+  // La fiche courte, une ligne : « Rat · sûr à 7 m · déplacement 9 à 11 · corps à corps »
+  function fiche(cle) {
+    var c = CREATURES[cle];
+    if (!c) return "";
+    var s = c.surete && c.sureteMax ? "sûr à " + c.surete + "–" + c.sureteMax + " m" : c.surete ? "sûr à " + c.surete + " m" : c.sureteMax ? "parfois agressif jusqu'à " + (c.sureteMax - 1) + " m" : "";
+    return [c.nom, s, "déplacement " + c.depl, c.attaque, c.note].filter(function (x) { return x && x !== "déplacement ?" && x !== "?"; }).join(" · ");
+  }
+  racine.DCC_ST = { CREATURES: CREATURES, reconnaitre: reconnaitre, fichierAvatar: fichierAvatar, distance: distance, cases: cases, chemins: chemins, situation: situation, fiche: fiche };
+})(window);
+  /* souterrains:fin */
+
   // ---------- Réglages : stockage de Tampermonkey, ou du navigateur hors Tampermonkey (page de test) ----------
   var DEFAUTS = { actif: true, niveau: "confort", mouvement: "discret", texteChat: "normal", horsJeu: true, aidesChat: true, sonsChat: true, carte: true, rangerNotifs: true, volume: 60, triMessages: "recents", bulles: "tout", tailleBulles: "normale", nomsCarte: "parlent",
-    decor: "lieu", ambiance: "coupee", agencement: "jeu", focus: false, entreeLigne: true, entreeLigneDefaut: false, deuxApparences: false, glisserConv: true };
+    decor: "lieu", ambiance: "coupee", agencement: "jeu", focus: false, entreeLigne: true, entreeLigneDefaut: false, deuxApparences: false, glisserConv: true, zonesST: true };
   var CHOIX = { niveau: ["origine", "confort", "refonte"], mouvement: ["aucun", "discret", "expressif"], texteChat: ["normal", "grand"], triMessages: ["recents", "nonlus", "nom"], bulles: ["tout", "repliques"], tailleBulles: ["normale", "grande"], nomsCarte: ["parlent", "tous"],
     decor: ["lieu", "uni"], ambiance: ["coupee", "douce"], agencement: ["jeu", "maquette"] };
   function magasin(cle) {
@@ -1304,6 +1420,45 @@
   function fondre(cible) { return animer(cible, [{ opacity: 0, offset: 0 }], MV.court); }
   function couleurAcc() { return getComputedStyle(racine).getPropertyValue("--dcc-acc").trim() || V3.acc; }
 
+  // ---------- Lot U1 (18/11/2026) : trois paliers de signal, un seul signe d'attente ----------
+  // Chaque signal du script tient dans un palier (inventaire et choix dans SIGNAUX-2026-11-18.md) :
+  //   ambiant  : une couleur, un filet ; ne bouge pas, ne sonne pas (lumière du lieu, jauge pleine pâlie, sourdine…) ;
+  //   notable  : au plus un mouvement bref et un son doux par événement et par endroit (message, mention, notification…) ;
+  //   critique : reste jusqu'à ce qu'il soit vu ou que l'état cesse (santé sous 25 %, vol, combat, zone d'une créature).
+  // Ce qui attend une réponse du jeu porte le même signe, et seulement passé 400 ms (seuil de Doherty) : un trait fin au
+  // bas de l'élément, qui avance une fois sans boucle (posé à 85 %, immobile, sans mouvement), retiré à la réponse. Au
+  // délai dépassé il part ; « siRien » dit pourquoi quand il y a quelque chose à dire. « deja » : la réponse est-elle là ?
+  var ATTENTE_MS = 400, attentes = Object.create(null);
+  function attenteJeu(cle, cible, opts) {
+    finAttente(cle);
+    if (!cible || !cible.isConnected) return;
+    opts = opts || {};
+    var a = { cible: cible, trait: null, rel: false, nb: opts.nb };
+    a.montre = setTimeout(function () {
+      if (attentes[cle] !== a) return;
+      if (!cible.isConnected || (opts.deja && opts.deja())) { finAttente(cle); return; }
+      if (getComputedStyle(cible).position === "static") { cible.classList.add("dcc-attente-rel"); a.rel = true; }
+      a.trait = el("span", "dcc-attente");
+      a.trait.setAttribute("aria-hidden", "true");
+      cible.appendChild(a.trait);
+    }, ATTENTE_MS);
+    a.limite = setTimeout(function () {
+      if (attentes[cle] !== a) return;
+      var arrive = opts.deja && opts.deja();
+      finAttente(cle);
+      if (!arrive && opts.siRien) opts.siRien();
+    }, opts.delai || 8000);
+    attentes[cle] = a;
+  }
+  function finAttente(cle) {
+    var a = attentes[cle];
+    if (!a) return;
+    delete attentes[cle];
+    clearTimeout(a.montre); clearTimeout(a.limite);
+    if (a.trait) a.trait.remove();
+    if (a.rel) a.cible.classList.remove("dcc-attente-rel");
+  }
+
   // ---------- Les jetons (lot 102, phase A : chaque valeur nommée, aucune ne change) ----------
   // Une seule source : V3 pour le JS (images data: et animations, qui ne lisent pas var()), JETONS pour les feuilles, posé
   // sur html (même sans dcc-actif, comme le kit) et dans chaque fenêtre isolée (:host). L'échelle des fonds s'appelle
@@ -1325,7 +1480,7 @@
     // Couches locales, chacune dans un bloc du jeu : pion sur sa case, pion en combat, bulles, porteur de bulle et pion survolé
     // (devant les pions du jeu, dans #carte), ordre des tours (sous celui du jeu, 9 999), menu du bandeau
     pion: 2, bulles: 5, pionCombat: 6, porteur: 136, survol: 140, tours: 1003, menuJeu: 300050 };
-  var JETONS = "--dcc-h-s: 28px; --dcc-h-m: 36px; --dcc-h-l: 44px; --dcc-d-survol: 90ms; --dcc-d-fondu: 110ms; --dcc-d-menu: 180ms; --dcc-d-panneau: 220ms; --dcc-d-trace: 500ms;" +
+  var JETONS = "--dcc-h-s: 28px; --dcc-h-m: 36px; --dcc-h-l: 44px; --dcc-d-survol: 90ms; --dcc-d-fondu: 110ms; --dcc-d-menu: 180ms; --dcc-d-panneau: 220ms; --dcc-d-trace: 500ms; --dcc-d-attente: 4s;" +
     " --dcc-ardoise-1: #06091a; --dcc-ardoise-2: #0a0f1a; --dcc-ardoise-3: #141e31; --dcc-ardoise-4: #18233a; --dcc-ardoise-5: #1f2c47;" +
     " --dcc-ardoise-6: #263550; --dcc-ardoise-7: #34476a; --dcc-ardoise-8: #4a5f86; --dcc-ardoise-9: " + V3.pale + "; --dcc-ardoise-10: " + V3.calme + ";" +
     " --dcc-ardoise-11: " + V3.texte + "; --dcc-ardoise-12: " + V3.titre + "; --dcc-acc-vif: " + V3.accVif + "; --dcc-danger-doux: " + V3.dangerDoux + ";" +
@@ -2641,6 +2796,11 @@
     ".dcc-im-bulle.dcc-t-hrp { background: transparent !important; color: var(--dcc-t2); box-shadow: inset 0 0 0 1px rgb(var(--dcc-filet-rvb) / .24); } .dcc-t-hrp .dcc-im-corps { font-size: 13px; font-style: italic; }",
     "html.dcc-anime .dcc-im-msg.dcc-im-arrive .dcc-im-bulle { animation: dcc-arrivee var(--dcc-d-panneau) cubic-bezier(.2, .7, .2, 1) 1; }",
     "@keyframes dcc-arrivee { from { clip-path: inset(0 100% 0 0); opacity: .5; } to { clip-path: inset(0 0 0 0); opacity: 1; } }",
+    // Lot U1 : le signe d'attente, un trait fin au bas de ce qui attend le jeu ; il avance une fois (4 s), sans boucle
+    ".dcc-attente-rel { position: relative; }",
+    ".dcc-attente { position: absolute; left: 0; bottom: 0; width: 100%; height: 2px; z-index: 3; pointer-events: none; background: var(--dcc-acc); opacity: .7; transform-origin: 0 50%; transform: scaleX(.85); }",
+    "html.dcc-anime .dcc-attente { animation: dcc-attente var(--dcc-d-attente) cubic-bezier(.2, .8, .2, 1) both; }",
+    "@keyframes dcc-attente { from { transform: scaleX(0); } to { transform: scaleX(.85); } }",
     ".dcc-im-apparence { flex: none; display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border-bottom: 1px solid rgb(var(--dcc-filet-rvb) / .14); background: rgb(4 8 16 / .6); } .dcc-im-apparence[hidden] { display: none; }",
     ".dcc-im-ap-rang { display: flex; align-items: center; gap: 10px; } .dcc-im-ap-titre { flex: 0 0 128px; color: var(--dcc-t3); font: 600 11px var(--dcc-chiffres); letter-spacing: .1em; text-transform: uppercase; }",
     ".dcc-im-ap-choix { display: flex; flex-wrap: wrap; gap: 6px; }",
@@ -2950,6 +3110,29 @@
     ZC121 + " .dcc-bulles > .dcc-bulle-bas { border-left-style: dashed; }",
     ZC121 + " .dcc-bulles > .dcc-bulle-cri { box-shadow: inset 0 0 0 1px var(--dcc-trait), 0 6px 16px rgb(0 0 0 / .55); }",
     "html.dcc-bulles-grandes" + ZC121.slice(4) + " .dcc-bulles > .dcc-bulle, html.dcc-bulles-grandes" + ZC121.slice(4) + " .dcc-bulle .dcc-bulle-qui { font-size: 14px; }",
+    // Souterrains : la zone des créatures, sous les pions (dans les deux apparences). Un voile à peine teinté, un trait fin à
+    // la limite de sûreté ; la bande « peut-être » en hachures ambre ; plus marqué quand tu es dedans
+    "#zone_carte .dcc-st { position: absolute; left: 0; top: 0; width: 0; height: 0; overflow: visible; pointer-events: none; z-index: 0; }",
+    "#zone_carte .dcc-st > svg { position: absolute; left: 0; top: 0; overflow: visible; pointer-events: none; }",
+    "#zone_carte .dcc-st .dcc-st-danger { fill: rgb(var(--dcc-danger-rvb, 255 120 132) / .045); }",
+    "#zone_carte .dcc-st .dcc-st-bord { fill: none; stroke: rgb(var(--dcc-danger-rvb, 255 120 132) / .45); stroke-width: 1; }",
+    "#zone_carte .dcc-st .dcc-st-peut { fill: url(#dcc-st-hachure); }",
+    "#zone_carte .dcc-st .dcc-st-trait { stroke: rgb(var(--dcc-alerte-rvb, 240 168 58) / .2); stroke-width: 1; }",
+    "#zone_carte .dcc-st .dcc-st-peut-bord { fill: none; stroke: rgb(var(--dcc-alerte-rvb, 240 168 58) / .32); stroke-width: 1; stroke-dasharray: 3 3; }",
+    "#zone_carte .dcc-st .dcc-st-bouge { opacity: .4; }",
+    "#zone_carte .dcc-st[data-dedans] .dcc-st-arret .dcc-st-bord { stroke: rgb(var(--dcc-danger-rvb, 255 120 132) / .8); }",
+    "#zone_carte .dcc-st[data-dedans='danger'] .dcc-st-arret .dcc-st-danger { fill: rgb(var(--dcc-danger-rvb, 255 120 132) / .09); }",
+    "#zone_carte .dcc-st .dcc-st-cible { fill: none; stroke: rgb(235 240 248 / .7); stroke-width: 1.5; }",
+    "#zone_carte .dcc-st-fiche { position: absolute; z-index: 130; transform: translate(-50%, -100%); white-space: nowrap; box-sizing: border-box; padding: 4px 8px; display: flex; flex-direction: column; gap: 1px;",
+    "  font: 400 11px/1.4 'Segoe UI', system-ui, sans-serif; letter-spacing: 0; text-transform: none; color: #dfe6f0; background: rgb(10 15 26 / .9);",
+    "  border: 1px solid rgb(255 255 255 / .1); border-radius: 6px; box-shadow: 0 4px 12px rgb(0 0 0 / .45); pointer-events: none; }",
+    "#zone_carte .dcc-st-fiche[data-bas] { transform: translate(-50%, 0); }",
+    "#zone_carte .dcc-st-fiche[hidden] { display: none; }",
+    "#zone_carte .dcc-st-fiche .dcc-st-l2:empty { display: none; }",
+    "#zone_carte .dcc-st-fiche b { font-weight: 600; color: #f3f6fa; }",
+    "#zone_carte .dcc-st-fiche .dcc-st-l2 { font-size: 10px; color: #9aa6b8; }",
+    "#zone_carte .dcc-st-fiche .dcc-st-toi[data-s='danger'] { color: rgb(var(--dcc-danger-rvb, 255 120 132)); }",
+    "#zone_carte .dcc-st-fiche .dcc-st-toi[data-s='peut-être'] { color: rgb(var(--dcc-alerte-rvb, 240 168 58)); }",
     // À qui l'on parle : au survol d'un pion, un fil fin vers ceux à qui il s'est adressé (sous les pions)
     ZC121 + " .dcc-fil { position: absolute; height: 0; border-top: 1.5px solid var(--dcc-qui, var(--dcc-acc)); opacity: .8; transform-origin: 0 50%; pointer-events: none; z-index: 129; }",
     // Le lieu : son nom est déjà en tête du panneau, la plaque sous la carte ne garde que l'adresse et la description
@@ -4349,6 +4532,7 @@
     reglages[cle] = valeur;
     reglages = nettoyer(reglages);
     stockage.ecrire(reglages);
+    if (cle === "zonesST" || cle === "actif") etape("souterrains", majZonesST);
     if (REGLAGES_DISPOSITION.indexOf(cle) >= 0 && pupitre() && mouvementPermis() && typeof document.startViewTransition === "function") {
       try { fonduVue(); return; } catch (e) { /* le fondu est refusé : on applique directement */ }
     }
@@ -5129,6 +5313,144 @@
       ev.appendChild(q);
     });
   }
+  // ---------- Souterrains : la zone de chaque créature (souterrains.js, demande du 17/11/2026) ----------
+  // Dans les souterrains seulement, dans les deux apparences : sous les pions, les cases où une créature t'attaque (un voile
+  // très léger bordé d'un trait fin), et en hachures la bande où elle peut attaquer selon les guides. Les zones voisines se
+  // fondent en une seule ; le trait est la limite de sûreté. Une créature qui se déplace n'attaque pas (guide de survie,
+  // note 2) : sa zone pâlit. Au survol d'une créature : sa fiche et ta distance. Rien n'est demandé au serveur : la carte
+  // donne les cases (icon_perso_X_Y), les noms et les avatars ; ta case est la croix du jeu (#croix_position).
+  var CASE_ST = 25, SVG_ST = "http://www.w3.org/2000/svg", sigST = "", creaturesST = [], moiST = null, survolST = null;
+  function enSouterrain() {
+    if (/^fondSouterrain/.test(idFond())) return true;
+    var l = document.querySelector("#lieu_actuel");
+    return !!l && /souterrain|sous-terrain|\btrappe\b|\bmanoir\b|\bmines?\b/i.test(l.textContent);
+  }
+  function porteeST(cle) { var c = window.DCC_ST.CREATURES[cle]; return c ? Math.max(c.surete, c.sureteMax || 0) : 0; }
+  function lireCreaturesST(cc) {
+    var ST = window.DCC_ST, nomMoi = moi(), lues = [];
+    Array.prototype.forEach.call(cc.querySelectorAll(".icon_perso"), function (pion) {
+      var m = /^icon_perso_(\d+)_(\d+)$/.exec(pion.id);
+      if (!m) return;
+      var noms = nomsAffiches(pion), img = pion.querySelector(".pion_avatar img"), src = img ? img.getAttribute("src") || "" : "", cle = null;
+      // Sur une case partagée, la créature qui porte le plus loin ; l'avatar du jeu n'est posé que sur un pion seul
+      (noms.length ? noms : [""]).forEach(function (nom) {
+        if (nom && nomMoi && egal(nom, nomMoi)) return;
+        var k = ST.reconnaitre(nom, noms.length <= 1 ? src : "");
+        if (k && (!cle || porteeST(k) > porteeST(cle))) cle = k;
+      });
+      if (!cle) return;
+      var e = pion.querySelector(".le_icon_perso");
+      lues.push({ x: +m[1], y: +m[2], cle: cle, bouge: !!e && e.classList.contains("deplacement") });
+    });
+    return lues;
+  }
+  function svgST(tag, cls) { var e = document.createElementNS(SVG_ST, tag); if (cls) e.setAttribute("class", cls); return e; }
+  function hoteST(cc) {
+    var h = cc.querySelector(":scope > .dcc-st");
+    if (h) return h;
+    h = el("div", "dcc-st");
+    h.setAttribute("aria-hidden", "true");
+    var s = svgST("svg"), defs = svgST("defs"), motif = svgST("pattern");
+    s.setAttribute("width", "1"); s.setAttribute("height", "1");
+    motif.setAttribute("id", "dcc-st-hachure"); motif.setAttribute("width", "6"); motif.setAttribute("height", "6");
+    motif.setAttribute("patternUnits", "userSpaceOnUse"); motif.setAttribute("patternTransform", "rotate(45)");
+    var trait = svgST("line", "dcc-st-trait");
+    trait.setAttribute("x1", "0"); trait.setAttribute("y1", "0"); trait.setAttribute("x2", "0"); trait.setAttribute("y2", "6");
+    motif.appendChild(trait); defs.appendChild(motif); s.appendChild(defs);
+    // Dessous la bande « peut-être », puis le danger ; ceux qui bougent à part, pâlis ; le contour de la créature survolée
+    [["g", "dcc-st-bouge", ["dcc-st-peut", "dcc-st-peut-bord", "dcc-st-danger", "dcc-st-bord"]], ["g", "dcc-st-arret", ["dcc-st-peut", "dcc-st-peut-bord", "dcc-st-danger", "dcc-st-bord"]]].forEach(function (d) {
+      var g = svgST(d[0], d[1]);
+      d[2].forEach(function (c) { g.appendChild(svgST("path", c)); });
+      s.appendChild(g);
+    });
+    s.appendChild(svgST("path", "dcc-st-cible"));
+    h.appendChild(s);
+    var f = el("div", "dcc-st-fiche");
+    f.hidden = true;
+    if (nos) { nos.add(h); nos.add(f); }
+    h.appendChild(f);
+    cc.insertBefore(h, cc.firstChild);
+    return h;
+  }
+  function tracerST(g, liste, cols, lignes) {
+    var ST = window.DCC_ST, z = ST.cases(liste, cols, lignes), d = ST.chemins(z.danger, CASE_ST), p = ST.chemins(z.peutEtre, CASE_ST);
+    [["dcc-st-danger", d.plein], ["dcc-st-bord", d.bord], ["dcc-st-peut", p.plein], ["dcc-st-peut-bord", p.bord]].forEach(function (x) {
+      var path = g.querySelector("." + x[0]);
+      if (path.getAttribute("d") !== x[1]) path.setAttribute("d", x[1]);
+    });
+    return z;
+  }
+  function majZonesST() {
+    var cc = document.querySelector("#zone_carte #carte_cases"), h = cc && cc.querySelector(":scope > .dcc-st");
+    if (!cc || !window.DCC_ST || !reglages.actif || !reglages.zonesST || !enSouterrain()) { if (h) h.remove(); sigST = ""; creaturesST = []; return; }
+    var carte = cc.closest("#carte") || cc, cols = Math.round(carte.offsetWidth / CASE_ST) || 21, lignes = Math.round(carte.offsetHeight / CASE_ST) || 21;
+    var croix = document.querySelector("#zone_carte #croix_position"), cs = croix ? getComputedStyle(croix) : null;
+    moiST = cs ? { x: Math.round(parseFloat(cs.left) / CASE_ST), y: Math.round(parseFloat(cs.top) / CASE_ST) } : null;
+    if (moiST && (isNaN(moiST.x) || isNaN(moiST.y))) moiST = null;
+    creaturesST = lireCreaturesST(cc);
+    var sig = cols + "x" + lignes + "|" + (moiST ? moiST.x + "," + moiST.y : "") + "|" + creaturesST.map(function (c) { return c.x + "," + c.y + c.cle + (c.bouge ? "~" : ""); }).join(";");
+    if (sig === sigST && h) return;
+    sigST = sig;
+    h = hoteST(cc);
+    tracerST(h.querySelector(".dcc-st-bouge"), creaturesST.filter(function (c) { return c.bouge; }), cols, lignes);
+    var z = tracerST(h.querySelector(".dcc-st-arret"), creaturesST.filter(function (c) { return !c.bouge; }), cols, lignes);
+    // Tu es dans une zone : son trait se renforce
+    var ici = moiST ? moiST.x + "_" + moiST.y : "", dedans = ici && z.danger[ici] ? "danger" : ici && z.peutEtre[ici] ? "peut" : "";
+    if ((h.getAttribute("data-dedans") || "") !== dedans) { if (dedans) h.setAttribute("data-dedans", dedans); else h.removeAttribute("data-dedans"); }
+    h.dccTaille = { cols: cols, lignes: lignes };
+    survolerST(survolST, true);
+  }
+  // La créature sous la souris : la case se calcule comme le jeu le fait (position dans #carte_cases, à son échelle)
+  function survolerST(c, force) {
+    var cc = document.querySelector("#zone_carte #carte_cases"), h = cc && cc.querySelector(":scope > .dcc-st");
+    var cible = c && creaturesST.filter(function (x) { return x.x === c.x && x.y === c.y; })[0] || null;
+    var cle = cible ? cible.x + "," + cible.y + cible.cle : "";
+    if (!force && h && (h.getAttribute("data-survol") || "") === cle) return;
+    survolST = c;
+    if (!h) return;
+    if (cle) h.setAttribute("data-survol", cle); else h.removeAttribute("data-survol");
+    var path = h.querySelector(".dcc-st-cible"), f = h.querySelector(".dcc-st-fiche");
+    if (!cible) { path.setAttribute("d", ""); f.hidden = true; return; }
+    var ST = window.DCC_ST, t = h.dccTaille || { cols: 21, lignes: 21 }, z = ST.cases([cible], t.cols, t.lignes);
+    // Le contour de sa zone entière (danger et bande), pour la voir seule parmi les autres
+    Object.keys(z.peutEtre).forEach(function (k) { z.danger[k] = true; });
+    path.setAttribute("d", ST.chemins(z.danger, CASE_ST).bord);
+    // Deux lignes : le nom et ta distance, puis la fiche en petit
+    f.textContent = "";
+    var txt = ST.fiche(cible.cle).split(" · "), l1 = el("span", "dcc-st-l1"), l2 = el("span", "dcc-st-l2");
+    l1.appendChild(el("b", null, txt.shift()));
+    if (moiST) {
+      var d = ST.distance(cible, moiST), s = ST.situation(cible.cle, d), toi = el("span", "dcc-st-toi", " · à " + d + " m" + (s === "danger" ? ", à portée" : s === "peut-être" ? ", peut-être à portée" : ", hors de portée"));
+      toi.setAttribute("data-s", s);
+      l1.appendChild(toi);
+    }
+    if (cible.bouge) txt.unshift("se déplace : n'attaque pas");
+    l2.textContent = txt.join(" · ");
+    f.append(l1, l2);
+    f.toggleAttribute("data-bas", cible.y < 2);
+    f.style.top = (cible.y < 2 ? (cible.y + 1) * CASE_ST + 4 : cible.y * CASE_ST - 4) + "px";
+    f.hidden = false;
+    // Gardée dans la carte : centrée sur la créature, poussée vers l'intérieur près d'un bord
+    var larg = f.offsetWidth, maxX = t.cols * CASE_ST, cx = cible.x * CASE_ST + CASE_ST / 2;
+    f.style.left = Math.max(larg / 2 + 2, Math.min(maxX - larg / 2 - 2, cx)) + "px";
+  }
+  var survolPrevuST = false, dernierEvST = null;
+  document.addEventListener("mousemove", function (e) {
+    dernierEvST = e;
+    if (survolPrevuST || !creaturesST.length) { if (!creaturesST.length && survolST) survolerST(null); return; }
+    survolPrevuST = true;
+    requestAnimationFrame(function () {
+      survolPrevuST = false;
+      var ev = dernierEvST, cc = document.querySelector("#zone_carte #carte_cases");
+      if (!cc || !ev) return;
+      // L'échelle se lit sur #carte (taille fixe) ; l'origine sur #carte_cases, où sont posés les pions
+      var carte = cc.closest("#carte") || cc, rc = carte.getBoundingClientRect(), r = cc.getBoundingClientRect(), k = carte.offsetWidth ? rc.width / carte.offsetWidth : 1;
+      var x = Math.floor((ev.clientX - r.left) / k / CASE_ST), y = Math.floor((ev.clientY - r.top) / k / CASE_ST);
+      var dans = ev.target && ev.target.closest && ev.target.closest("#zone_carte");
+      survolerST(dans ? { x: x, y: y } : null);
+    });
+  }, { passive: true });
+
   // ---------- Lot 121 : qui vient de parler, et à qui ----------
   // L'heure de la dernière réplique ou action de chacun, prise sur les lignes arrivées pendant la session (pas sur une reprise
   // du chat), et à qui il s'est adressé (« Ilyan@Pip »). Le nom sous un pion se montre plein moins de 2 min après, à moitié
@@ -5594,7 +5916,9 @@
     var b = { nom: nom, vers: vers, texte: montre, style: style, duree: duree, fin: Date.now() + duree };
     bulles[cleNom(nom)] = b;
     var pion = ancreDe(nom, lien && lien.getAttribute("alt"));
-    if (pion) { poserBulle(pion, b); halo(pion, duree); eteindre(bulleDe(nom), "#24456a"); }
+    // Lot U1 : un mouvement par événement sur la carte. En Maquette, les ondes du pion disent qui parle ; l'éclat de la bulle
+    // ne reste qu'ailleurs, où il n'y a pas d'ondes
+    if (pion) { poserBulle(pion, b); halo(pion, duree); if (!racine.classList.contains("dcc-maquette")) eteindre(bulleDe(nom), "#24456a"); }
     setTimeout(function () {
       if (bulles[cleNom(nom)] !== b) return;
       delete bulles[cleNom(nom)];
@@ -5740,9 +6064,20 @@
         var m = jeuMessagerie();
         if (!m || typeof m.loadFolderContent !== "function") return;
         demandeA = Date.now();
-        try { m.loadFolderContent(); } catch (x) { /* le jeu refuse : rien de plus */ }
+        // Lot U1 : le signe d'attente au bas de la liste, jusqu'à ce que des lignes arrivent (ou rien : fin du dossier)
+        var nb = liste.querySelectorAll("li.message").length, finSuite = function () { finAttente("suite"); };
+        if (pupitre()) attenteJeu("suite", liste, { nb: nb, delai: 8000, deja: function () { return liste.querySelectorAll("li.message").length !== nb; } });
+        try { var r = m.loadFolderContent(); if (r && typeof r.then === "function") r.then(finSuite, finSuite); } catch (x) { finSuite(); /* le jeu refuse : rien de plus */ }
       }, { passive: true });
+      // Lot U1 : une conversation demandée au jeu depuis la liste porte le signe d'attente jusqu'à ce que sa fenêtre arrive
+      bloc.addEventListener("click", function (ev) {
+        var li = ev.target.closest && ev.target.closest("li.message");
+        if (!li || ev.button || ev.target.closest("input, button, .selecteur, .dcc-l-pop")) return;
+        var conv = (li.id.match(/^message_(\d+)$/) || [])[1];
+        if (conv) attendreOuverture(conv, li);
+      }, true);
     }
+    if (attentes.suite && liste.querySelectorAll("li.message").length !== attentes.suite.nb) finAttente("suite");
     filtrerMessages(liste);
     trierMessages(liste);
     var auj = new Date(), jourAuj = String(auj.getDate()).padStart(2, "0") + "/" + String(auj.getMonth() + 1).padStart(2, "0") + "/" + String(auj.getFullYear()).slice(2);
@@ -8191,7 +8526,18 @@
     rechercheAttendue = q ? { conv: String(conv), q: q, t: Date.now() } : null;
     // Déjà ouverte par le jeu (sans fenêtre du Courrier) : la fonction du jeu bascule, elle la fermerait (revue du 27/10, n° 15)
     if (document.getElementById("db_message_" + conv)) return;
-    try { m.openMessage(+conv); } catch (x) { /* le jeu dira */ }
+    attendreOuverture(conv, document.getElementById("message_" + conv));
+    try { m.openMessage(+conv); } catch (x) { finAttente("ouvre:" + conv); /* le jeu dira */ }
+  }
+  // Lot U1 : le signe d'attente sur la ligne demandée (ou sur la liste si la ligne n'y est pas), jusqu'à la fenêtre du jeu
+  function attendreOuverture(conv, ligne) {
+    if (!pupitre() || !messagerieActive() || fenetresIm[conv] || document.getElementById("db_message_" + conv)) return;
+    var cible = ligne && ligne.isConnected ? ligne : document.getElementById("liste_messages");
+    attenteJeu("ouvre:" + conv, cible, {
+      delai: 8000,
+      deja: function () { return !!document.getElementById("db_message_" + conv); },
+      siRien: function () { annoncerPupitre("Le jeu n'a pas ouvert la conversation : réessaie dans un instant."); }
+    });
   }
   function majMembresIm(conv) {
     var w = fenetresIm[conv], p = w && w.querySelector(".dcc-im-membres"), b = boiteConv(conv);
@@ -8242,7 +8588,13 @@
     clearTimeout(etatConv(conv).reprise); etatConv(conv).reprise = null;
     // Rechargée pour ce compte de non-lus : le rechargement seul attend une nouvelle marque (lot 101, G2)
     etatConv(conv).autoFait = dernierNonLus || 0;
-    try { if (document.getElementById("db_message_" + conv)) msgr.openMessage(+conv); msgr.openMessage(+conv); } catch (x) { /* reste telle quelle */ }
+    // Lot U1 : le signe d'attente sous l'en-tête de la fenêtre, jusqu'au retour de la fenêtre du jeu ; pas pendant un envoi
+    // ni juste après (la bulle « envoi… » / « envoyé » le dit déjà)
+    var e = etatConv(conv), w = fenetresIm[conv], avant = boiteConv(conv);
+    if (w && !e.envoi && !e.parti && Date.now() - (e.envoyeA || 0) > 8000) {
+      attenteJeu("recharge:" + conv, w.querySelector(".dcc-im-tete"), { delai: 8000, deja: function () { var b = boiteConv(conv); return !!b && b !== avant; } });
+    }
+    try { if (document.getElementById("db_message_" + conv)) msgr.openMessage(+conv); msgr.openMessage(+conv); } catch (x) { finAttente("recharge:" + conv); /* reste telle quelle */ }
   }
   // Parti si le jeu vide son champ ou remplace sa fenêtre, ou si la conversation compte une ligne de plus. Le jeu ne vide
   // pas toujours le champ caché (relevé en jeu le 26/10/2026) : au bout de 2,5 s, la conversation est rouverte pour voir si
@@ -8796,6 +9148,13 @@
     var vues = Object.create(null);
     Array.prototype.forEach.call(document.querySelectorAll("#zone_dataBox > [id^='db_message_']"), function (boite) {
       var conv = (boite.id.match(/^db_message_(\d+)$/) || [])[1];
+      // Lot U1 : la fenêtre du jeu est là, l'attente de l'ouverture finit ; celle d'un rechargement, si c'est une nouvelle
+      if (conv) {
+        finAttente("ouvre:" + conv);
+        var ea = etatsConv[conv];
+        if (attentes["recharge:" + conv] && ea && ea.boiteVue !== boite) finAttente("recharge:" + conv);
+        if (ea) ea.boiteVue = boite;
+      }
       if (!conv || !pupitre() || !messagerieActive() || boite.querySelector(".message_nouveau") || !boite.querySelector(".zone_conversation")) {
         if (boite.hasAttribute("data-dcc-im")) boite.removeAttribute("data-dcc-im");
         return;
@@ -8853,7 +9212,8 @@
       }
       var rm = w.querySelector(".dcc-im-remettre");
       if (rm && rm.hidden === !!e.nonConfirme) rm.hidden = !e.nonConfirme;
-      var t = e.envoi ? "Envoi en cours…" : e.nonConfirme ? "Envoi non confirmé par le jeu" : e.envoyeA && Date.now() - e.envoyeA < 60000 ? "Envoyé · " + dateCourte(e.envoyeA).slice(6) : b ? "Brouillon gardé · " + dateCourte(b.t).slice(6) : "";
+      // Lot U1 : pendant l'envoi, la bulle « envoi… » du fil le dit ; le pied ne le répète pas
+      var t = e.envoi ? "" : e.nonConfirme ? "Envoi non confirmé par le jeu" : e.envoyeA && Date.now() - e.envoyeA < 60000 ? "Envoyé · " + dateCourte(e.envoyeA).slice(6) : b ? "Brouillon gardé · " + dateCourte(b.t).slice(6) : "";
       ecrireSiChange(w.querySelector(".dcc-im-brouillon"), t);
     });
   }
@@ -9131,7 +9491,7 @@
     return copie.textContent.replace(/\s+/g, " ").replace(/[\s-]+$/, "").trim().slice(0, 300);
   }
   function majNotifs() {
-    var nouvelles = 0, sonores = 0, combatSonore = false, volSonore = false, boites = document.querySelectorAll("#zone_evilBox > .evilBox, body > .evilBox, body > evilbox");
+    var nouvelles = 0, sonores = 0, aLEcran = 0, combatSonore = false, volSonore = false, boites =document.querySelectorAll("#zone_evilBox > .evilBox, body > .evilBox, body > evilbox");
     // Les registres de la page ne grossissent pas sans fin : au-delà de 500, seules les notifications affichées y restent
     if (Object.keys(vuesCles).length > 500) {
       var la = Object.create(null);
@@ -9148,14 +9508,16 @@
       vuesNotifs[box.id] = true;
       quantites.set(box, qte);
       arriveesNotifs.set(box, Date.now());
-      if (!dejaVue && !premieresNotifs && racine.classList.contains("dcc-confort") && !racine.classList.contains("dcc-cede-notifs")) {
-        animer(box, [{ opacity: 0, translate: "12px 0", offset: 0 }], MV.moyen);
-        animer(box, [{ boxShadow: "inset 0 0 0 2px " + couleurAcc(), offset: 0 }], MV.fond, { expressif: true });
-      }
       // Ne pas déranger : tout est rangé sans son, sauf ce qui touche un combat ou un vol (lot S-A) ; un vol suit alors
       // le choix fait pour sa catégorie
       var type = (box.getAttribute("simplified") || "").slice(0, 60), titreBox = ((box.querySelector(".titre") || {}).textContent || "").trim().slice(0, 80);
       var estVol = notifDeVol(type, titreBox), mode = estVol && npd ? modesCats[categorieNotif(type)] || "normale" : modeNotif(type);
+      // Lot U1 : une notification affichée glisse à son arrivée ; c'est son seul mouvement (la cloche ne rebondit plus avec)
+      if (!dejaVue && !premieresNotifs && racine.classList.contains("dcc-confort") && !racine.classList.contains("dcc-cede-notifs")) {
+        if (mode === "normale") aLEcran++;
+        animer(box, [{ opacity: 0, translate: "12px 0", offset: 0 }], MV.moyen);
+        animer(box, [{ boxShadow: "inset 0 0 0 2px " + couleurAcc(), offset: 0 }], MV.fond, { expressif: true });
+      }
       // Nouvelle, d'après ce que cette page a déjà vu. Le jeu redonne ses identifiants après un rechargement : l'historique
       // ne sert qu'au chargement, pour ne pas noter deux fois celles qui étaient déjà affichées
       var nouvelle = premieresNotifs ? !historique.some(function (h) { return h.id === cle; }) : !vuesCles[cle];
@@ -9169,6 +9531,8 @@
       box.classList.toggle("dcc-rangee-choix", mode !== "normale");
       if (mode !== "normale") return;
       if (box.querySelector(".content .link")) return;
+      // Lot U1 : un vol est critique, il reste jusqu'à ce que tu le fermes (jamais rangé au bout de 20 s)
+      if (estVol) return;
       if (dejaVue) box.classList.remove("dcc-rangee");
       clearTimeout(minuteurs.get(box));
       minuteurs.set(box, setTimeout(function () { box.classList.add("dcc-rangee"); etape("notifications", majNotifsPupitre); }, RANGER_MS));
@@ -9179,7 +9543,8 @@
       // Sous « Ne pas déranger », une notification de combat sonne comme un combat (le son « notif » y est coupé ; n° 40).
       // Un vol a son propre son, même onglet au premier plan (lot S-A, SONS-2026-11-12.md S2)
       if (!premieresNotifs && sonores && sons) sons.jouer(volSonore ? "vol" : npd && combatSonore ? "combat" : "notif");
-      if (!premieresNotifs) { nonVues += nouvelles; majCloche(); rebondir(cloche); }
+      // La cloche ne rebondit que si rien ne s'est montré à l'écran (notifications rangées d'office) : un événement, un mouvement
+      if (!premieresNotifs) { nonVues += nouvelles; majCloche(); if (!aLEcran) rebondir(cloche); }
       majSectionNotifs();
       if (notifsAffichees()) remplirNotifs();
     }
@@ -10502,11 +10867,13 @@
     var avant = nonLus;
     nonLus += lignes.filter(function (l) { return l.getAttribute("data-dcc-auteur") && !l.classList.contains("semi_transparent"); }).length;
     majBoutonBas();
-    if (nonLus > avant) rebondir(boutonBas);
+    // Lot U1 : le bouton rebondit quand il paraît, pas à chaque réplique de plus (le nombre qui monte suffit)
+    if (!avant && nonLus > 0) rebondir(boutonBas);
   }
-  // Une réplique qui arrive : son fond s'éteint en 1,2 s (pas l'ancien rechargé, rien sous Chat Enhancer)
+  // Une réplique qui te cite ou t'est adressée : son fond s'éteint en 500 ms (pas l'ancien rechargé, rien sous Chat
+  // Enhancer). Lot U1 : plus pour les autres répliques ; dans un bar animé, chaque ligne s'allumait, c'était du bruit
   function signalerLigne(l) {
-    if (!l.isConnected || l.classList.contains("semi_transparent") || !racine.classList.contains("dcc-confort") || racine.classList.contains("dcc-cede-chat")) return;
+    if (!l.isConnected || !l.classList.contains("dcc-mention") || l.classList.contains("semi_transparent") || !racine.classList.contains("dcc-confort") || racine.classList.contains("dcc-cede-chat")) return;
     eteindre(l, "rgb(92 194 255 / .16)");
   }
   function couleursDuSkin() {
@@ -12859,6 +13226,17 @@
   // « Copier le compte rendu » en fait un texte à coller. Rien n'est testé à ta place et rien ne paraît hors de cette fiche.
   // Un point reste tant qu'il n'est pas retiré de cette liste par une version suivante ; ses réponses sont gardées par numéro.
   var RECETTE = [
+    ["0.133.0", "Signaux plus calmes, un seul signe d'attente", [
+      ["133-attente", "Courrier : en ouvrant une conversation lente, un trait fin avance sous sa ligne, puis part quand la fenêtre arrive"],
+      ["133-suite", "Courrier : en bas de la liste, un trait fin au pied pendant que la suite charge ; rien de plus à la fin du dossier"],
+      ["133-chat", "Chat : les répliques ordinaires ne s'allument plus ; seule une réplique qui te cite s'éclaire brièvement"],
+      ["133-cloche", "Notifications : la cloche ne sautille plus quand la notification s'affiche ; un vol reste jusqu'à ce que tu le fermes"],
+      ["133-envoi", "Courrier : pendant un envoi, la bulle « envoi… » seule le dit (plus « Envoi en cours… » en pied)"]]],
+    ["0.132.0", "Zones des créatures en souterrain", [
+      ["132-zones", "Souterrains : un voile léger bordé d'un trait fin entoure chaque rat ou mutant ; rien en ville"],
+      ["132-noms", "Souterrains : chaque créature visible a sa zone (aucune oubliée, aucun joueur pris pour une créature)"],
+      ["132-distance", "Souterrains : en t'approchant d'un rat, son trait se renforce à 6 cases et pas avant (7 cases = sûr)"],
+      ["132-survol", "Souterrains : au survol d'une créature, sa fiche et ta distance, sans gêner les clics sur la carte"]]],
     ["0.131.1", "Courrier plus rapide", [
       ["1311-ouvrir", "Courrier : à l'ouverture d'une conversation, les bulles « Chargement… » se remplissent en une seconde environ, plus une à une"],
       ["1311-envoi", "Courrier : après « Envoyer », ta bulle reste affichée (« envoyé ») jusqu'à ce que le message apparaisse, sans disparaître entre-temps"],
@@ -13572,7 +13950,7 @@
     if (lot.length) etape("lignes vues", function () { var neuves = lignesNeuves(lot); paquet = lot.length > LOT_MAX && neuves; });
     etape("sons", function () { sonnerChat(lot, paquet); });
     if (fichesAVoir) { fichesAVoir = false; etape("fiches", brancherFiches); }
-    if (pionsAVoir) { pionsAVoir = false; etape("carte", majPions); }
+    if (pionsAVoir) { pionsAVoir = false; etape("carte", majPions); etape("souterrains", majZonesST); }
     if (combatAVoir) { combatAVoir = false; etape("combat", function () { majJournal(); majBilan(); majTour(); majCampsCarte(); majMenuCombat(); majZoneCombat(); var dbc = pupitre() && document.getElementById("db_combat"); if (dbc) rangerEquipes(dbc); }); }
     if (munitionsAVoir) { munitionsAVoir = false; etape("munitions", majMunitions); }
     if (messagerieAVoir) { messagerieAVoir = false; etape("messagerie", majMessagerie); etape("reduites", majReduites); }
@@ -13764,6 +14142,10 @@
         corps.appendChild(ligne(d[1], sel));
       });
     }
+    // Les zones des créatures, dans les deux apparences (souterrains seulement)
+    var lst = ligne("Zones des créatures (souterrains)", interrupteur("zonesST", ["Oui", "Non"]));
+    lst.firstChild.appendChild(el("small", null, "Où chaque créature attaque, d'après les guides ST ; sa fiche au survol"));
+    corps.appendChild(lst);
     var nbCouleurs = Object.keys(couleursNoms).length;
     var lc = ligne("Couleurs des noms", el("em", "note", nbCouleurs ? nbCouleurs + " personnage" + (nbCouleurs > 1 ? "s" : "") : "aucune"));
     lc.firstChild.appendChild(el("small", null, "Dans la fiche d'un personnage (clic sur son nom)"));
@@ -14047,7 +14429,7 @@
   // compris, et se lit dans « État » (lot 101, G3)
   if (mvtReduit.addEventListener) mvtReduit.addEventListener("change", appliquer);
   [["réglages", appliquer], ["avatars", recolterAvatars], ["couleurs du skin", couleursDuSkin], ["feuille", majFeuille], ["fiches", brancherFiches], ["chat", traiterChat],
-    ["carte", majPions], ["combat", majJournal], ["combat", majBilan], ["munitions", majMunitions], ["messagerie", majMessagerie], ["notifications", majNotifs],
+    ["carte", majPions], ["souterrains", majZonesST], ["combat", majJournal], ["combat", majBilan], ["munitions", majMunitions], ["messagerie", majMessagerie], ["notifications", majNotifs],
     ["date", majDatePTI], ["terminal", brancherTerminal], ["fouille", majFouille], ["neuvopack", majNeuvopacks], ["compteur", brancherCompteur], ["modèles du chat", brancherModelesChat],
     ["défilement", suivreDefilement], ["historique", brancherHistorique], ["scripts", detecterScripts], ["combat", verifierCombat], ["menu", placerMenu], ["observateur", brancherObservateur],
     ["état du personnage", verifierEtatPerso]
