@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DC Confort
 // @namespace    deck.local
-// @version      0.134.0
+// @version      0.135.0
 // @updateURL    https://raw.githubusercontent.com/Shinsudo/dreadcast-scripts/main/dc-confort.meta.js
 // @downloadURL  https://raw.githubusercontent.com/Shinsudo/dreadcast-scripts/main/dc-confort.user.js
 // @description  Rend l'écran de Dreadcast et son forum plus lisibles. Le Courrier, façon DDM V2, lit les messages auprès du jeu et envoie tes réponses, à ta demande seulement.
@@ -48,7 +48,7 @@
    Repères du jeu : DOM-JEU.md (relevés du 23 et du 24/10/2026). */
 (function () {
   "use strict";
-  var VERSION = "0.134.0";
+  var VERSION = "0.135.0";
   var racine = document.documentElement;
   // Les éléments que DC Confort crée : un changement fait dedans ne relance pas l'observateur (audit de phase 6, n° 14)
   var nos = typeof WeakSet === "function" ? new WeakSet() : null;
@@ -3151,10 +3151,25 @@
     "#zone_carte .dcc-st .dcc-st-trait { stroke: rgb(var(--dcc-alerte-rvb, 240 168 58) / .2); stroke-width: 1; }",
     "#zone_carte .dcc-st .dcc-st-peut-bord { fill: none; stroke: rgb(var(--dcc-alerte-rvb, 240 168 58) / .32); stroke-width: 1; stroke-dasharray: 3 3; }",
     "#zone_carte .dcc-st .dcc-st-bouge { opacity: .4; }",
-    "#zone_carte .dcc-st[data-dedans] .dcc-st-arret .dcc-st-bord { stroke: rgb(var(--dcc-danger-rvb, 255 120 132) / .8); }",
+    // Lot U3 (WCAG 1.4.11) : quand tu es dans une zone, son bord passe à 3:1 au moins, quel que soit le sol : trait plein
+    // de 1,5 px posé sur un filet sombre de 3,5 px (la couleur se lit contre ce filet, pas contre le décor du lieu)
+    "#zone_carte .dcc-st :is(.dcc-st-halo, .dcc-st-peut-halo) { fill: none; stroke: none; }",
+    "#zone_carte .dcc-st[data-dedans] .dcc-st-arret .dcc-st-halo, #zone_carte .dcc-st[data-dedans='peut'] .dcc-st-arret .dcc-st-peut-halo { stroke: rgb(6 8 14 / .85); stroke-width: 3.5; }",
+    "#zone_carte .dcc-st[data-dedans] .dcc-st-arret .dcc-st-bord { stroke: rgb(var(--dcc-danger-rvb, 255 120 132)); stroke-width: 1.5; }",
+    "#zone_carte .dcc-st[data-dedans='peut'] .dcc-st-arret .dcc-st-peut-bord { stroke: rgb(var(--dcc-alerte-rvb, 240 168 58)); stroke-width: 1.5; }",
     "#zone_carte .dcc-st[data-dedans='danger'] .dcc-st-arret .dcc-st-danger { fill: rgb(var(--dcc-danger-rvb, 255 120 132) / .09); }",
     "#zone_carte .dcc-st .dcc-st-cible { fill: none; stroke: rgb(235 240 248 / .7); stroke-width: 1.5; }",
-    "#zone_carte .dcc-st-fiche { position: absolute; z-index: 130; transform: translate(-50%, -100%); white-space: nowrap; box-sizing: border-box; padding: 4px 8px; display: flex; flex-direction: column; gap: 1px;",
+    // Les jauges (lot U3) : au pied de chaque créature, au-dessus des pions (130) et sous un pion survolé ou qui parle
+    "#zone_carte .dcc-st-jauges { position: absolute; left: 0; top: 0; width: 0; height: 0; overflow: visible; pointer-events: none; z-index: 131; }",
+    "#zone_carte .dcc-st-jauges > svg { position: absolute; left: 0; top: 0; overflow: visible; pointer-events: none; }",
+    "#zone_carte .dcc-st-jauges .dcc-st-jauge-fond { fill: none; stroke: rgb(6 8 14 / .85); stroke-width: 4; }",
+    "#zone_carte .dcc-st-jauges .dcc-st-jauge { fill: none; stroke-width: 2; }",
+    "#zone_carte .dcc-st-jauges .dcc-st-jauge-danger { stroke: rgb(var(--dcc-danger-rvb, 255 120 132)); }",
+    "#zone_carte .dcc-st-jauges .dcc-st-jauge-peut { stroke: rgb(var(--dcc-alerte-rvb, 240 168 58)); }",
+    "#zone_carte .dcc-st-jauges .dcc-st-jauge-sur { stroke: " + V3.ok + "; }",
+    "#zone_carte .dcc-st-jauges .dcc-st-bouge { opacity: .4; }",
+    // La fiche du survol passe devant tout ce qui est sur la carte (pion survolé compris)
+    "#zone_carte .dcc-st-fiche { position: absolute; z-index: calc(var(--dcc-z-survol, 140) + 1); transform: translate(-50%, -100%); white-space: nowrap; box-sizing: border-box; padding: 4px 8px; display: flex; flex-direction: column; gap: 1px;",
     "  font: 400 11px/1.4 'Segoe UI', system-ui, sans-serif; letter-spacing: 0; text-transform: none; color: #dfe6f0; background: rgb(10 15 26 / .9);",
     "  border: 1px solid rgb(255 255 255 / .1); border-radius: 6px; box-shadow: 0 4px 12px rgb(0 0 0 / .45); pointer-events: none; }",
     "#zone_carte .dcc-st-fiche[data-bas] { transform: translate(-50%, 0); }",
@@ -5389,31 +5404,100 @@
     trait.setAttribute("x1", "0"); trait.setAttribute("y1", "0"); trait.setAttribute("x2", "0"); trait.setAttribute("y2", "6");
     motif.appendChild(trait); defs.appendChild(motif); s.appendChild(defs);
     // Dessous la bande « peut-être », puis le danger ; ceux qui bougent à part, pâlis ; le contour de la créature survolée
-    [["g", "dcc-st-bouge", ["dcc-st-peut", "dcc-st-peut-bord", "dcc-st-danger", "dcc-st-bord"]], ["g", "dcc-st-arret", ["dcc-st-peut", "dcc-st-peut-bord", "dcc-st-danger", "dcc-st-bord"]]].forEach(function (d) {
+    [["g", "dcc-st-bouge", ["dcc-st-peut", "dcc-st-peut-bord", "dcc-st-danger", "dcc-st-bord"]], ["g", "dcc-st-arret", ["dcc-st-peut", "dcc-st-peut-halo", "dcc-st-peut-bord", "dcc-st-danger", "dcc-st-halo", "dcc-st-bord"]]].forEach(function (d) {
       var g = svgST(d[0], d[1]);
       d[2].forEach(function (c) { g.appendChild(svgST("path", c)); });
       s.appendChild(g);
     });
     s.appendChild(svgST("path", "dcc-st-cible"));
     h.appendChild(s);
-    var f = el("div", "dcc-st-fiche");
-    f.hidden = true;
-    if (nos) { nos.add(h); nos.add(f); }
-    h.appendChild(f);
+    if (nos) nos.add(h);
     cc.insertBefore(h, cc.firstChild);
     return h;
   }
+  // Lot U3 : ce qui doit passer AU-DESSUS des pions (z-index 130 du jeu) vit hors de la couche des zones, qui reste dessous :
+  // les jauges au pied de chaque créature, puis la fiche du survol (en 0.132.0, rangée dans la couche des zones, elle
+  // passait sous les pions voisins)
+  function hautST(cc) {
+    var j = cc.querySelector(":scope > .dcc-st-jauges"), f = cc.querySelector(":scope > .dcc-st-fiche");
+    if (!j) {
+      j = el("div", "dcc-st-jauges");
+      j.setAttribute("aria-hidden", "true");
+      var s = svgST("svg");
+      s.setAttribute("width", "1"); s.setAttribute("height", "1");
+      // Un fond sombre sous chaque jauge (lisible sur un avatar clair comme sur le sol), puis les trois couleurs ; celles des
+      // créatures qui se déplacent à part, pâlies comme leur zone
+      s.appendChild(svgST("path", "dcc-st-jauge-fond"));
+      ["dcc-st-arret", "dcc-st-bouge"].forEach(function (g) {
+        var gg = svgST("g", g);
+        ["danger", "peut", "sur"].forEach(function (k) { gg.appendChild(svgST("path", "dcc-st-jauge dcc-st-jauge-" + k)); });
+        s.appendChild(gg);
+      });
+      j.appendChild(s);
+      if (nos) nos.add(j);
+      cc.appendChild(j);
+    }
+    if (!f) {
+      f = el("div", "dcc-st-fiche");
+      f.hidden = true;
+      if (nos) nos.add(f);
+      cc.appendChild(f);
+    }
+    return { jauges: j, fiche: f };
+  }
+  function retirerST(cc) {
+    if (cc) Array.prototype.forEach.call(cc.querySelectorAll(":scope > :is(.dcc-st, .dcc-st-jauges, .dcc-st-fiche)"), function (n) { n.remove(); });
+    glisseST.forEach(function (a) { try { a.cancel(); } catch (e) { /* déjà fini */ } });
+    glisseST = [];
+    disparusST = [];
+  }
   function tracerST(g, liste, cols, lignes) {
     var ST = window.DCC_ST, z = ST.cases(liste, cols, lignes), d = ST.chemins(z.danger, CASE_ST), p = ST.chemins(z.peutEtre, CASE_ST);
-    [["dcc-st-danger", d.plein], ["dcc-st-bord", d.bord], ["dcc-st-peut", p.plein], ["dcc-st-peut-bord", p.bord]].forEach(function (x) {
+    [["dcc-st-danger", d.plein], ["dcc-st-bord", d.bord], ["dcc-st-halo", d.bord], ["dcc-st-peut", p.plein], ["dcc-st-peut-bord", p.bord], ["dcc-st-peut-halo", p.bord]].forEach(function (x) {
       var path = g.querySelector("." + x[0]);
-      if (path.getAttribute("d") !== x[1]) path.setAttribute("d", x[1]);
+      if (path && path.getAttribute("d") !== x[1]) path.setAttribute("d", x[1]);
     });
     return z;
   }
+  // Lot U3 (Aggro Gauge, RangeMobTBC) : un trait de 12 px au pied de chaque créature, à la couleur de ta situation face à
+  // elle (rouge : à portée ; ambre : peut-être ; vert d'eau : hors de portée). Sans ta case (pas de croix), pas de jauge.
+  function jaugesST(j, liste) {
+    var ST = window.DCC_ST, fond = [], par = { "dcc-st-arret": { danger: [], peut: [], sur: [] }, "dcc-st-bouge": { danger: [], peut: [], sur: [] } };
+    if (moiST) liste.forEach(function (c) {
+      var s = ST.situation(c.cle, ST.distance(c, moiST)), seg = "M" + (c.x * CASE_ST + 6.5) + " " + (c.y * CASE_ST + 23.5) + "h12";
+      fond.push(seg);
+      par[c.bouge ? "dcc-st-bouge" : "dcc-st-arret"][s === "danger" ? "danger" : s === "peut-être" ? "peut" : "sur"].push(seg);
+    });
+    var poser = function (path, d) { if (path.getAttribute("d") !== d) path.setAttribute("d", d); };
+    poser(j.querySelector(".dcc-st-jauge-fond"), fond.join(""));
+    Object.keys(par).forEach(function (g) {
+      Object.keys(par[g]).forEach(function (k) { poser(j.querySelector("." + g + " .dcc-st-jauge-" + k), par[g][k].join("")); });
+    });
+  }
+  // Lot U3 (UX in Motion : continuité) : une créature qui change de case (1 à 3 cases) fait glisser sa zone depuis l'ancienne
+  // place au lieu de la faire sauter. Pendant ce glissement, sa zone est dessinée à part, puis rendue à l'ensemble.
+  // Rien ne glisse en mouvement réduit ni sous « Aucun ». Une créature partie de sa case est gardée 1,5 s comme point de
+  // départ possible : si le jeu la retire puis la repose en deux temps, elle glisse quand même.
+  var precST = [], glisseST = [], disparusST = [];
+  function memeST(a, b) { return a.x === b.x && a.y === b.y && a.cle === b.cle; }
+  function deplacesST(avant, apres) {
+    var t = Date.now(), nouveaux = apres.filter(function (n) { return !avant.some(function (a) { return memeST(a, n); }); }), paires = [];
+    disparusST = disparusST.filter(function (d) { return t - d.t < 1500 && !apres.some(function (n) { return memeST(n, d); }); });
+    avant.forEach(function (a) {
+      if (!apres.some(function (n) { return memeST(n, a); }) && !disparusST.some(function (d) { return memeST(d, a); })) disparusST.push({ x: a.x, y: a.y, cle: a.cle, t: t });
+    });
+    nouveaux.forEach(function (n) {
+      var meilleur = null, dMin = 4;
+      disparusST.forEach(function (a) { var d = a.cle === n.cle ? window.DCC_ST.distance(a, n) : 99; if (d < dMin) { dMin = d; meilleur = a; } });
+      if (!meilleur) return;
+      disparusST.splice(disparusST.indexOf(meilleur), 1);
+      paires.push({ c: n, dx: meilleur.x - n.x, dy: meilleur.y - n.y });
+    });
+    return paires;
+  }
   function majZonesST() {
     var cc = document.querySelector("#zone_carte #carte_cases"), h = cc && cc.querySelector(":scope > .dcc-st");
-    if (!cc || !window.DCC_ST || !reglages.actif || !reglages.zonesST || !enSouterrain()) { if (h) h.remove(); sigST = ""; creaturesST = []; return; }
+    if (!cc || !window.DCC_ST || !reglages.actif || !reglages.zonesST || !enSouterrain()) { retirerST(cc); sigST = ""; creaturesST = []; precST = []; return; }
     var carte = cc.closest("#carte") || cc, cols = Math.round(carte.offsetWidth / CASE_ST) || 21, lignes = Math.round(carte.offsetHeight / CASE_ST) || 21;
     var croix = document.querySelector("#zone_carte #croix_position"), cs = croix ? getComputedStyle(croix) : null;
     moiST = cs ? { x: Math.round(parseFloat(cs.left) / CASE_ST), y: Math.round(parseFloat(cs.top) / CASE_ST) } : null;
@@ -5421,11 +5505,40 @@
     creaturesST = lireCreaturesST(cc);
     var sig = cols + "x" + lignes + "|" + (moiST ? moiST.x + "," + moiST.y : "") + "|" + creaturesST.map(function (c) { return c.x + "," + c.y + c.cle + (c.bouge ? "~" : ""); }).join(";");
     if (sig === sigST && h) return;
+    var avant = h ? precST : [];
     sigST = sig;
+    precST = creaturesST.slice();
     h = hoteST(cc);
-    tracerST(h.querySelector(".dcc-st-bouge"), creaturesST.filter(function (c) { return c.bouge; }), cols, lignes);
-    var z = tracerST(h.querySelector(".dcc-st-arret"), creaturesST.filter(function (c) { return !c.bouge; }), cols, lignes);
-    // Tu es dans une zone : son trait se renforce
+    var haut = hautST(cc), svg = h.querySelector("svg");
+    // Un glissement en cours s'arrête net : la zone part de la place qu'elle avait atteinte au dernier dessin
+    glisseST.forEach(function (a) { try { a.cancel(); } catch (e) { /* déjà fini */ } });
+    glisseST = [];
+    Array.prototype.forEach.call(svg.querySelectorAll(".dcc-st-glisse"), function (g) { g.remove(); });
+    var paires = deplacesST(avant, creaturesST);
+    if (!mouvementPermis()) paires = [];
+    var aPart = paires.map(function (p) { return p.c; });
+    var fixes = creaturesST.filter(function (c) { return aPart.indexOf(c) < 0; });
+    tracerST(h.querySelector(".dcc-st-bouge"), fixes.filter(function (c) { return c.bouge; }), cols, lignes);
+    tracerST(h.querySelector(".dcc-st-arret"), fixes.filter(function (c) { return !c.bouge; }), cols, lignes);
+    paires.forEach(function (p) {
+      var g = svgST("g", "dcc-st-glisse " + (p.c.bouge ? "dcc-st-bouge" : "dcc-st-arret"));
+      ["dcc-st-peut", "dcc-st-peut-bord", "dcc-st-danger", "dcc-st-bord"].forEach(function (c) { g.appendChild(svgST("path", c)); });
+      tracerST(g, [p.c], cols, lignes);
+      svg.insertBefore(g, svg.querySelector(".dcc-st-cible"));
+      var a = animer(g, [{ translate: (p.dx * CASE_ST) + "px " + (p.dy * CASE_ST) + "px" }, { translate: "0px 0px" }], MV.moyen);
+      if (a) glisseST.push(a);
+    });
+    // Le glissement fini, la zone rejoint l'ensemble (un seul contour avec ses voisines)
+    if (glisseST.length) Promise.all(glisseST.map(function (a) { return a.finished; })).then(function () {
+      glisseST = [];
+      Array.prototype.forEach.call(svg.querySelectorAll(".dcc-st-glisse"), function (g) { g.remove(); });
+      sigST = "";
+      majZonesST();
+    }, function () { /* annulé par un dessin plus récent */ });
+    else if (aPart.length) { sigST = ""; precST = []; setTimeout(majZonesST, 0); }
+    jaugesST(haut.jauges, creaturesST);
+    // Tu es dans une zone (de toutes les créatures à l'arrêt, celles qui glissent comprises) : son trait se renforce
+    var z = window.DCC_ST.cases(creaturesST.filter(function (c) { return !c.bouge; }), cols, lignes);
     var ici = moiST ? moiST.x + "_" + moiST.y : "", dedans = ici && z.danger[ici] ? "danger" : ici && z.peutEtre[ici] ? "peut" : "";
     if ((h.getAttribute("data-dedans") || "") !== dedans) { if (dedans) h.setAttribute("data-dedans", dedans); else h.removeAttribute("data-dedans"); }
     h.dccTaille = { cols: cols, lignes: lignes };
@@ -5440,7 +5553,7 @@
     survolST = c;
     if (!h) return;
     if (cle) h.setAttribute("data-survol", cle); else h.removeAttribute("data-survol");
-    var path = h.querySelector(".dcc-st-cible"), f = h.querySelector(".dcc-st-fiche");
+    var path = h.querySelector(".dcc-st-cible"), f = hautST(cc).fiche;
     if (!cible) { path.setAttribute("d", ""); f.hidden = true; return; }
     var ST = window.DCC_ST, t = h.dccTaille || { cols: 21, lignes: 21 }, z = ST.cases([cible], t.cols, t.lignes);
     // Le contour de sa zone entière (danger et bande), pour la voir seule parmi les autres
@@ -5456,6 +5569,8 @@
       l1.appendChild(toi);
     }
     if (cible.bouge) txt.unshift("se déplace : n'attaque pas");
+    // Lot U3 (PullGuard) : une estimation dite comme telle, pas une précision feinte
+    txt.push("estimé d'après les guides");
     l2.textContent = txt.join(" · ");
     f.append(l1, l2);
     f.toggleAttribute("data-bas", cible.y < 2);
@@ -13257,6 +13372,11 @@
   // « Copier le compte rendu » en fait un texte à coller. Rien n'est testé à ta place et rien ne paraît hors de cette fiche.
   // Un point reste tant qu'il n'est pas retiré de cette liste par une version suivante ; ses réponses sont gardées par numéro.
   var RECETTE = [
+    ["0.135.0", "Souterrains : jauge, glissement, bord lisible", [
+      ["135-jauge", "Souterrains : un petit trait au pied de chaque créature, rouge à portée, ambre peut-être, vert d'eau hors de portée"],
+      ["135-glisse", "Souterrains : quand une créature avance d'une case, sa zone glisse jusqu'à sa nouvelle place au lieu de sauter"],
+      ["135-dedans", "Souterrains : dans la zone d'une créature à l'arrêt, son bord se lit nettement (trait plein sur filet sombre)"],
+      ["135-fiche", "Souterrains : la fiche au survol passe devant les pions voisins et finit par « estimé d'après les guides »"]]],
     ["0.134.0", "Mouvement : d'où vient une fenêtre", [
       ["134-origine", "Courrier : une conversation ouverte d'un clic dans la liste grandit depuis sa ligne, pas du centre"],
       ["134-clavier", "Ctrl K : la palette ouverte au clavier s'ouvre sur place, sans glisser"],
